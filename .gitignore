@@ -1,0 +1,126 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Bulwark .gitignore
+#
+# Read docs/git-workflow.md before touching this file. Every rule has a reason.
+# Six-person team + heavy AI coding agents working in parallel — this file is a
+# safety net, not decoration.
+#
+# THE TASK / LOG MODEL (full explanation in docs/git-workflow.md §1–§2):
+#
+#   tasks/  → temporary work orders from the project lead.  IGNORED by Git.
+#             Distributed out-of-band when work is assigned. Never committed,
+#             never force-added.
+#
+#   logs/   → permanent development & debugging history.     TRACKED by Git.
+#             One file per feature/workstream, append-only, survives feature-
+#             branch deletion. DO NOT add a rule that ignores logs/.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+# ── Temporary task files (work orders from the project lead) ────────────────
+# The whole tasks/ directory is local-only. Task files are the scope fence for
+# one feature; they are not project history, so they never enter Git.
+# Do not `git add -f` a task file. Do not move task files into docs/.
+/tasks/
+
+# Belt-and-suspenders: a task file belongs in tasks/, never at the repo root.
+/*-task.md
+
+# NOTE: logs/ is intentionally NOT listed here. Development logs are tracked
+# project history and live in `main`. See docs/git-workflow.md §6.
+
+
+# ── Runtime data — NEVER commit ─────────────────────────────────────────────
+# config/app.yaml `paths:` section. All auto-created on first startup.
+# Contains uploads, OCR extraction output, generated artifacts, sandbox
+# scratch, the SQLite DB, and the Chroma vector store. None of it is source.
+/data/
+
+# Stray SQLite files if a DB is ever opened outside data/db/
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+
+
+# ── Secrets / local config ─────────────────────────────────────────────────
+# There are currently NO secrets in Bulwark (zero external credentials — see
+# docs/security.md). `.env.example` is the documented placeholder pattern and
+# IS tracked. A real `.env` is not.
+.env
+.env.*
+!.env.example
+
+# Per-machine config overrides. The 6 dev machines differ (OS / GPU / RAM —
+# see docs/hardware.md). Shared config lives in config/*.yaml and IS tracked;
+# a machine-specific override file is local-only.
+/config/*.local.yaml
+/config/local.yaml
+
+
+# ── Python / backend ───────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+
+# ── Node / frontend (React + Vite) ─────────────────────────────────────────
+node_modules/
+/frontend/dist/
+/frontend/.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+
+# ── Model weights — pulled locally, never vendored into the repo ────────────
+# Ollama models live in ~/.ollama; PaddleOCR weights download on first run.
+# These patterns only catch an accidental commit of a weight file.
+*.gguf
+*.onnx
+*.safetensors
+/models/
+
+
+# ── Logs / temp ────────────────────────────────────────────────────────────
+# This is runtime *.log output and scratch files — NOT the tracked dev logs
+# under logs/, which are *.md and are committed on purpose.
+*.log
+/tmp/
+*.tmp
+
+
+# ── Editor / OS cruft ──────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+# If the team later wants to share a specific VS Code setting, un-ignore just
+# that file, e.g.:  !/.vscode/extensions.json
+
+
+# ── Claude Code / AI agent local state ─────────────────────────────────────
+# Project-level .claude/settings.json (shared team config) IS tracked.
+# Personal overrides are not.
+.claude/settings.local.json

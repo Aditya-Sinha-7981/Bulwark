@@ -6,7 +6,7 @@ One Sandbox Capability contract (`execute_code` in `capabilities.md`), one imple
 
 ## Docker image
 
-A minimal, purpose-built image (`aegis-sandbox:latest`, built locally during provisioning — never pulled from a public registry at runtime, per zero-egress requirements in `security.md`) containing only the Python runtime and standard library needed to execute generated code. No network tools, no package manager access at container runtime (packages needed for a task must already be in the image — see Package policy below).
+A minimal, purpose-built image (`bulwark-sandbox:latest`, built locally during provisioning — never pulled from a public registry at runtime, per zero-egress requirements in `security.md`) containing only the Python runtime and standard library needed to execute generated code. No network tools, no package manager access at container runtime (packages needed for a task must already be in the image — see Package policy below).
 
 ## Container lifecycle
 
@@ -24,7 +24,7 @@ Per invocation of `execute_code`:
      -v data/sandbox/{execution_id}/input:/workspace/input:ro \
      -v data/sandbox/{execution_id}/output:/workspace/output:rw \
      --workdir /workspace \
-     aegis-sandbox:latest \
+     bulwark-sandbox:latest \
      python input/script.py
    ```
 4. Enforce the timeout (`configuration.md`, default 30s) via the calling process, hard-killing the container (`docker kill`) on expiry.
@@ -74,7 +74,7 @@ Captured and returned as `exit_code` in the capability's output schema (`capabil
 
 ## Image management
 
-The `aegis-sandbox:latest` image is built once during provisioning (`deployment.md`) from a Dockerfile checked into the repository. It is never rebuilt or pulled at runtime — this matters for both reliability (no build-time surprises mid-demo) and zero-egress (no registry pull needed after provisioning).
+The `bulwark-sandbox:latest` image is built once during provisioning (`deployment.md`) from a Dockerfile checked into the repository. It is never rebuilt or pulled at runtime — this matters for both reliability (no build-time surprises mid-demo) and zero-egress (no registry pull needed after provisioning).
 
 ## Package policy
 

@@ -34,7 +34,7 @@ Single-workstation local deployment only — no server/cloud deployment target e
    ollama pull qwen3-embedding:0.6b
    ```
 5. Install PaddleOCR and its model weights (`pip install paddleocr`, first-run weight download).
-6. Build the sandbox image once: `docker build -t aegis-sandbox:latest ./sandbox`
+6. Build the sandbox image once: `docker build -t bulwark-sandbox:latest ./sandbox`
 7. Initialize the SQLite database (schema migration script, run once).
 8. Configure the OS firewall rule scoping the backend process to loopback (`security.md`) — a one-time setup step, documented per-platform in the repository's setup script, never done live.
 

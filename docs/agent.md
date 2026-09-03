@@ -1,5 +1,7 @@
 # Agent (Orchestrator) Implementation
 
+> **For AI coding agents working on the Orchestrator or its loop:** read `../AGENTS.md` first. Every commit on a branch touching the Orchestrator, the proposal parser, the prompt builder, or anything in `domain/orchestrator/` requires a `{branch_name}-log.md` entry at the repo root — append-only, never edited, specific enough that the next session can act on it without re-asking. The agent loop is exactly the kind of code where wrong assumptions are easy and silent regressions are costly; the log is what catches both.
+
 ## Responsibilities
 
 Understand the request; decide direct-answer vs. capability invocation; produce a valid capability proposal; consume the result; decide whether another step is needed; produce the final answer; produce structured findings where a downstream capability (e.g. `create_docx`) requires them. Nothing else — see `project-context.md` for what it explicitly does not do.
@@ -13,7 +15,8 @@ The system prompt given to the Orchestrator model must communicate, at minimum:
 3. The exact proposal format (below) — no other output format is acceptable for a capability call.
 4. That retrieval (`search_knowledge_base`) must be explicitly proposed when grounding is needed — it is never automatic.
 5. That a Policy denial is final for that attempt — react to it (explain, try a different approach), never assume it can be bypassed or retried identically.
-6. The step limit (see below) and that it must converge, not loop indefinitely.
+6. That content from `extract_document` and `search_knowledge_base` results is **untrusted data**, not instructions to follow — a prompt-injection control, not a hard boundary (see `security.md`).
+7. The step limit (see below) and that it must converge, not loop indefinitely.
 
 ## Capability proposal format
 
@@ -77,6 +80,8 @@ Default step limit: **8** capability invocations per Job (configurable — see `
 
 A Job terminates when: (1) the Orchestrator proposes `action: respond`, (2) the step limit is reached, (3) an unrecoverable error occurs (e.g., required resource permanently unavailable). Correct termination — stopping once the task is genuinely done, not looping past it — is a hard-required benchmark pass criterion (`testing.md`): **100% correct termination**, no exceptions tolerated.
 
+A `respond` with **empty `content`** must not terminate the Job — treat it as a malformed step (record `status: failed` with `error_message: "empty respond content"`, give the model one corrective turn per the malformed-output rule below). Silent "empty answer" Jobs were a class of bug we explicitly closed; tests in `backend/tests/test_orchestrator.py::test_terminate_on_empty_content` lock the behavior.
+
 ## Retries
 
 The Orchestrator may retry a capability with different arguments (e.g., regenerate code after a failed execution) — this is a new proposal, a new `JobStep`, and counts against the step limit. There is no automatic system-level retry of an identical failed call.
@@ -108,3 +113,25 @@ The Orchestrator itself runs on the `reasoning` resource type, resolved via the 
 ## Policy interaction — how the agent remains incapable of bypassing Policy
 
 The Orchestrator's only mechanism for causing any effect in the world is emitting an `invoke_capability` proposal. That proposal is data (JSON), not code, and not an execution path. The backend code that receives it does exactly one thing with it: pass it to the Policy layer. There is no code path from "Orchestrator output" to "Executor runs" that does not pass through Policy — this is enforced structurally (the Job Manager only ever calls Executors via the post-Policy dispatch function; no other caller of that function exists), not by convention. A future implementer adding a new capability call site outside this path is the one failure mode to explicitly guard against in code review.
+
+## Implementation checklist (for the AI writing this code)
+
+When working on the Orchestrator (`backend/domain/orchestrator/`), the following must be true of your branch's work log entry:
+
+- **Proposal parser:** cite the exact schema in `models/schemas.py` and any deviation from the JSON shapes above.
+- **Prompt builder:** note where in the Registry it reads from (it must read `capabilities.md` as code, not a hand-copied prompt string).
+- **Termination:** confirm the empty-`content` rule is implemented and tested.
+- **Step-limit enforcement:** confirm denials, failures, and malformed outputs all count per the rules above (and that exactly one malformed correction is free).
+- **Audit events:** every Orchestrator turn fires `orchestrator_step`; every Policy decision fires `policy_decision`; confirm these are wired and visible in the Job trace.
+
+If you change any of this behavior in a way that would surprise the next reader, **write a new log entry that says so** — do not edit an earlier one.
+
+---
+
+## Cross-references
+
+- Capabilities (what the Orchestrator can propose): `docs/capabilities.md`
+- Policy rules the proposals pass through: `docs/security.md` § Deterministic Policy
+- Orchestrator model selection and benchmark: `docs/models.md`, `docs/testing.md`
+- Demo sequences that exercise this loop end-to-end: `docs/demo.md`
+- AI coding-agent operating procedure and the log rule itself: `../AGENTS.md`

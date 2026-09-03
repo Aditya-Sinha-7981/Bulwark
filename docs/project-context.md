@@ -1,4 +1,4 @@
-# Project Context — Aegis (SIH26117)
+# Project Context — Bulwark (SIH26117)
 
 **Read this file first. Every team member and every AI coding session reads this before touching any code.**
 

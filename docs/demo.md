@@ -33,7 +33,7 @@ The bridge between engineering and the final presentation. These four flows are 
 
 ## Workflow B — Coding request → generation → sandbox execution → verification
 
-**Starting state:** Sandbox image built (`aegis-sandbox:latest`), Docker Desktop running.
+**Starting state:** Sandbox image built (`bulwark-sandbox:latest`), Docker Desktop running.
 
 **User action:** Asks for a small script solving a defined task (e.g., a calculation relevant to the industrial context).
 
