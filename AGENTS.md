@@ -304,3 +304,4 @@ Default to asking over guessing. A clarifying question that takes 30 seconds is 
 8. Commit on a branch. Push. Open PR.
 
 If you do only one thing from this file, do #7. The log is what makes this project survivable across sessions.
+testing now 
