@@ -19,7 +19,7 @@ Table definition: `data-model.md#AuditEvent`. Restated here for reference:
 }
 ```
 
-`job_id` is null only for Job-independent events (currently just `network_check`, which runs continuously regardless of Job activity).
+`job_id` is null only for Job-independent events — for example `network_check` (continuous, independent of any Job activity) and an `error` event fired by a Job-independent background process such as knowledge-base ingestion (`rag.md`).
 
 ## Event types
 
