@@ -5,11 +5,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.health import router as health_router
-from config import CORS_ALLOW_ORIGINS, DATA_SUBDIRS
+from config import settings
+from utils.paths import all_managed_dirs
 
 
 def create_data_directories() -> None:
-    for directory in DATA_SUBDIRS:
+    for directory in all_managed_dirs():
         try:
             directory.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
@@ -27,9 +28,15 @@ app = FastAPI(title="Bulwark Backend", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ALLOW_ORIGINS,
+    allow_origins=settings.app.cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 app.include_router(health_router, prefix="/api/v1")
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host=settings.app.host, port=settings.app.port)
