@@ -74,7 +74,7 @@ Captured and returned as `exit_code` in the capability's output schema (`capabil
 
 ## Image management
 
-The `bulwark-sandbox:latest` image is built once during provisioning (`deployment.md`) from a Dockerfile checked into the repository. It is never rebuilt or pulled at runtime — this matters for both reliability (no build-time surprises mid-demo) and zero-egress (no registry pull needed after provisioning).
+The `bulwark-sandbox:latest` image is built once during provisioning (`deployment.md`) from `sandbox/Dockerfile`, checked into the repository (`docker build -t bulwark-sandbox:latest ./sandbox`). It is never rebuilt or pulled at runtime — this matters for both reliability (no build-time surprises mid-demo) and zero-egress (no registry pull needed after provisioning).
 
 ## Package policy
 

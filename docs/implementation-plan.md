@@ -6,7 +6,7 @@ Dependency-ordered stages. Each stage lists objective, dependencies, expected mo
 
 **Objective:** Working skeleton — backend and frontend both start, talk to each other, `GET /api/v1/health` returns `ok`.
 **Dependencies:** None.
-**Modules:** `backend/main.py`, `backend/config.py`, `frontend/` scaffold, `docker/` (sandbox image Dockerfile), directory structure per `deployment.md`.
+**Modules:** `backend/main.py`, `backend/config.py`, `frontend/` scaffold, `sandbox/Dockerfile` (sandbox image, build context `./sandbox`), `docker/` (empty placeholder directory), directory structure per `deployment.md`.
 **Acceptance:** Health check passes; frontend loads; no functional features yet.
 **Tests:** Health-check integration test.
 **Parallelizable:** Backend and frontend scaffolds can start simultaneously.
@@ -126,7 +126,7 @@ Dependency-ordered stages. Each stage lists objective, dependencies, expected mo
 
 **Objective:** `execute_code` per `sandbox.md`.
 **Dependencies:** Stage 7.
-**Modules:** `domain/sandbox/docker_executor.py`, `docker/Dockerfile` (sandbox image).
+**Modules:** `domain/sandbox/docker_executor.py`, `sandbox/Dockerfile` (sandbox image).
 **Acceptance:** Known-good script executes and returns correct output; known-failing script returns correct non-zero exit; a script attempting a network call fails; timeout is enforced and hard-kills the container.
 **Tests:** Sandbox tests (`testing.md`), including the network-denial verification.
 **Parallelizable:** Yes, independent of Stages 11–12.
