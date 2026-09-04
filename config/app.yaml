@@ -1,0 +1,25 @@
+app:
+  host: 127.0.0.1
+  port: 8000
+  cors_origins: ["http://localhost:5173"]
+
+paths:
+  data_root: ./data
+  uploads: ./data/uploads
+  extraction: ./data/extraction
+  artifacts: ./data/artifacts
+  sandbox: ./data/sandbox
+  tmp: ./data/tmp
+  db: ./data/db/app.db
+  chroma: ./data/chroma
+
+ocr:
+  escalation_thresholds:
+    mean_confidence_below: 0.75
+    completeness_below: 0.6
+    handwriting_detected: true
+    layout_complexity_flag: true
+
+ollama:
+  base_url: http://localhost:11434    # loopback only — no external Ollama endpoint is supported (security.md layer 3)
+  request_timeout_seconds: 120         # Model Runtime HTTP request timeout; per-capability timeouts (config/capabilities.yaml) remain authoritative for capability execution
