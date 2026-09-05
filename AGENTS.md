@@ -29,9 +29,9 @@ You are implementing Bulwark (or part of it) under the locked architecture. You:
 - Read context, then make focused, testable changes.
 - Never silently change a locked architectural decision — flag and ask.
 - Maintain the feature's `logs/<feature>.md` for **every** feature/workstream you touch (rules below).
-- Run tests and lint before committing.
-- Commit on a branch, never on `main`.
-- Inspect your own diff before pushing.
+- Run tests and lint, then inspect your own diff, before handing off.
+- Work only on a branch, never on `main` — you may create the branch yourself (`git checkout -b feature/<name>`).
+- **Never commit, push, or open/merge a PR yourself.** Prepare the change, run the checks, and propose an exact commit message; the human developer performs every Git and PR mutation. See §7 "Git workflow" for the full AI/human boundary.
 
 ---
 
@@ -176,13 +176,12 @@ Mirror of `docs/project-context.md` §"AI Coding Agent Operating Procedure" — 
 5. Read the feature's `logs/<feature>.md` if one exists.
 6. Identify dependencies and existing implementation.
 7. Do **not** silently change architectural decisions — flag and ask instead.
-8. Implement the smallest coherent change that solves the problem.
+8. Implement the smallest coherent change that solves the problem, on a branch, never on `main`. (See §7.)
 9. Run relevant tests/checks (`docs/testing.md` says which category applies).
-10. Inspect your own diff (`git diff`).
+10. Inspect your own diff (`git diff`, `git status`).
 11. **Append an entry to the feature's `logs/<feature>.md`.** (See §4.)
-12. Commit on a branch, never `main`. (See §7.)
-13. Push the branch.
-14. Report what changed, what was tested, any remaining issues.
+12. Propose an exact commit message (and, if relevant, a PR summary). **Do not run `git add`, `git commit`, `git push`, or create/merge a PR — that is the human developer's step, always.** (See §7.)
+13. Report what changed, what was tested, any remaining issues, and the proposed commit message, then stop and hand off to the human.
 
 ---
 
@@ -208,18 +207,36 @@ If you need to break one of these, write a proposed ADR-style entry in your bran
 
 ---
 
-## 7. Git workflow
+## 7. Git workflow — and the AI/human authority boundary
 
-From `docs/git-workflow.md`. Short version:
+From `docs/git-workflow.md` (see that file §0 for the full table). The rule that overrides every other Git instruction in this file, in `README.md`, in `docs/project-context.md`, and in `docs/AI-CONTEXT.md`:
+
+> **Git mutation is human-only.** AI coding agents may inspect Git state and prepare commit/PR information, but they never stage, commit, push, merge, rebase, delete a branch, or otherwise mutate history or remote repository state. AI may propose an exact commit message and PR description; the human developer decides whether to use them and performs the actual operation.
+
+### AI MAY
+
+- Run read-only/inspection commands: `git status`, `git diff`, `git log`, `git branch`, `git show`, and `git fetch` **only if it does not alter the working tree or repository history**.
+- Inspect the current branch and repository state, inspect diffs, determine what files changed, verify whether changes are ready for review.
+- Create or check out a local feature branch off `main` (`git checkout -b feature/<name>`) — this only creates a ref, it mutates neither history nor the remote. Never `main` itself.
+- Suggest or generate a commit message, and a PR title/body.
+- Tell the human the implementation is ready for commit and explain exactly what should be committed.
+
+### AI MUST NOT
+
+Never execute: `git add`, `git commit`, `git push` (including force-push), `git merge`, `git rebase`, branch deletion (local or remote), PR creation, PR opening, PR approval, PR merging, or any other command that mutates Git history or the remote repository (GitHub/GitLab/etc.).
+
+The AI may **write or suggest** a commit message, but it must **never execute the commit itself.**
+
+### Conventions (for whoever executes them — normally the human, from the AI's prepared diff)
 
 - **Never commit directly to `main`.** No exceptions. Not "for a quick fix", not "for a config tweak", not "for a docs typo". Branch.
 - Branch names: `feature/<short-desc>` or `fix/<short-desc>`. The feature's permanent log is `logs/<feature>.md` (see `docs/git-workflow.md`).
 - One logical change per commit. Message must be readable without opening the diff.
-- Before committing: `git status`, `git diff`, run the tests that apply to your change.
-- Before pushing: re-check `git status` and `git diff`, confirm you're on the right branch.
-- Push branch → open PR. Don't merge your own PRs unless the team explicitly says so.
+- Before committing: `git status`, `git diff`, run the tests that apply to the change.
+- Before pushing: re-check `git status` and `git diff`, confirm the right branch.
+- Push branch → open PR. Don't merge your own PR unless the team explicitly says so — and regardless of that, the AI never merges.
 
-AIs specifically: `update main → branch → implement → test → review diff → commit → push → PR`. This is identical to the procedure in `docs/project-context.md` §11 and points at `docs/git-workflow.md` for mechanics.
+**Canonical procedure, actors explicit:** `update main → branch → AI implements → AI tests → AI reviews diff → AI proposes a commit message → human commits → human pushes → human opens PR → human reviews/merges`. This is identical in spirit to the procedure in `docs/project-context.md` §"AI Coding Agent Operating Procedure" and points at `docs/git-workflow.md` for mechanics.
 
 ---
 
@@ -301,6 +318,6 @@ Default to asking over guessing. A clarifying question that takes 30 seconds is 
 5. Test it.
 6. Diff it.
 7. **Append an entry to `logs/<feature>.md`** with what changed, why, how to verify, and any open issues.
-8. Commit on a branch. Push. Open PR.
+8. Propose a commit message and stop. **Do not commit, push, or open a PR** — that's the human developer's job, always (§7).
 
 If you do only one thing from this file, do #7. The log is what makes this project survivable across sessions.

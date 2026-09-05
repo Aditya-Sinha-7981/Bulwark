@@ -195,7 +195,7 @@ If you're new to this codebase:
 5. `docs/decisions.md` — why it's built this way (don't relitigate).
 6. Everything else, as needed for the task at hand.
 
-If you're contributing: see `docs/git-workflow.md`. **Never commit directly to `main`.** Always branch → implement → test → review diff → commit → push → PR.
+If you're contributing: see `docs/git-workflow.md`. **Never commit directly to `main`.** Always branch → implement → test → review diff → commit → push → PR — and if an AI coding agent is doing the implementing, it stops after "review diff": it prepares a suggested commit message and never runs `git commit`, `git push`, or opens/merges a PR itself. The human developer performs every Git and PR mutation. See `docs/git-workflow.md` §0 and `AGENTS.md` §7 for the exact boundary.
 
 ---
 

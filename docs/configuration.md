@@ -103,7 +103,13 @@ ocr:
     completeness_below: 0.6
     handwriting_detected: true
     layout_complexity_flag: true
+
+ollama:
+  base_url: http://localhost:11434    # loopback only — no external Ollama endpoint is supported (security.md layer 3)
+  request_timeout_seconds: 120         # Model Runtime HTTP request timeout; per-capability timeouts (config/capabilities.yaml) remain authoritative for capability execution
 ```
+
+`ollama.base_url` is loopback-only and is never pointed at an external host — this preserves the zero-egress invariant (`security.md`, AGENTS.md §6 rules 9–10). The configuration loader rejects a non-loopback value. Model names never appear here; they stay exclusively in `config/resources.yaml` (ADR-08). `ollama.request_timeout_seconds` is the default HTTP request timeout the Model Runtime module (`backend.md`, `models.md`) uses when talking to Ollama; where a capability declares its own `timeout_seconds` in `config/capabilities.yaml`, that value governs the capability's execution.
 
 ## Distinguishing configuration from secrets
 

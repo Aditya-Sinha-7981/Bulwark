@@ -1,0 +1,4 @@
+policy:
+  network_access_allowed: false   # invariant — never set true
+  max_job_steps: 8
+  malformed_output_free_retries: 1

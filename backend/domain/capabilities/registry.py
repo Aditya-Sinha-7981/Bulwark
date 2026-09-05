@@ -8,7 +8,7 @@ against input/output schemas.
 No execution logic — contracts and validation only.
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Union
 from pydantic import BaseModel
 from backend.models.schemas import (
     CapabilityRegistryEntry,
@@ -27,6 +27,7 @@ from backend.models.schemas import (
     UnknownCapabilityError,
     CapabilityValidationError,
 )
+from backend.models.schemas import CapabilitiesConfig
 
 
 # Static capability definitions from docs/capabilities.md
@@ -135,23 +136,29 @@ _OUTPUT_SCHEMAS = {
 class CapabilityRegistry:
     """Registry for capability contracts with validation."""
 
-    def __init__(self, capabilities_config: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self,
+        capabilities_config: Optional[Union[Dict[str, Any], CapabilitiesConfig]] = None
+    ):
         """
         Initialize the registry with static definitions overlaid with config.
 
         Args:
-            capabilities_config: Dict with "capabilities" key mapping capability name
-                to dict with enabled, timeout_seconds, and per-capability limits.
-                Example: {"capabilities": {"extract_document": {"enabled": True, "timeout_seconds": 120}}}
+            capabilities_config: Either:
+                - A CapabilitiesConfig Pydantic model (from settings.capabilities)
+                - A dict with "capabilities" key mapping capability name to dict with
+                  enabled, timeout_seconds, and per-capability limits.
+                  Example: {"capabilities": {"extract_document": {"enabled": True, "timeout_seconds": 120}}}
         """
         self._entries: Dict[str, CapabilityRegistryEntry] = {}
-        self._config = capabilities_config or {}
+        self._config = capabilities_config
         self._limits: Dict[str, Dict[str, Any]] = {}  # Store per-capability limits
         self._load_registry()
 
     def _load_registry(self) -> None:
         """Load all capabilities, merging static definitions with config."""
-        config_caps = self._config.get("capabilities", {}) if self._config else {}
+        # Handle both dict (legacy/test) and CapabilitiesConfig (production) formats
+        config_caps = self._extract_config_caps(self._config)
 
         # Fail fast: config entry for unknown capability
         for cfg_name in config_caps:
@@ -195,6 +202,25 @@ class CapabilityRegistry:
                 raise ValueError(f"Capability {name} must have network_access: false")
 
             self._entries[name] = entry
+
+    def _extract_config_caps(self, config: Optional[Union[Dict[str, Any], CapabilitiesConfig]]) -> Dict[str, Dict[str, Any]]:
+        """Extract capability configs from either dict or CapabilitiesConfig model."""
+        if config is None:
+            return {}
+
+        if isinstance(config, CapabilitiesConfig):
+            # Convert Pydantic model to dict
+            return {
+                "extract_document": config.extract_document.model_dump(),
+                "search_knowledge_base": config.search_knowledge_base.model_dump(),
+                "generate_code": config.generate_code.model_dump(),
+                "execute_code": config.execute_code.model_dump(),
+                "create_docx": config.create_docx.model_dump(),
+                "create_xlsx": config.create_xlsx.model_dump(),
+            }
+
+        # Legacy dict format: {"capabilities": {...}}
+        return config.get("capabilities", {}) if config else {}
 
     def get(self, name: str) -> CapabilityRegistryEntry:
         """Get a capability entry by name. Raises UnknownCapabilityError if not found."""
@@ -309,7 +335,7 @@ class CapabilityRegistry:
 _registry: Optional[CapabilityRegistry] = None
 
 
-def get_registry(capabilities_config: Optional[Dict[str, Any]] = None) -> CapabilityRegistry:
+def get_registry(capabilities_config: Optional[Union[Dict[str, Any], CapabilitiesConfig]] = None) -> CapabilityRegistry:
     """Get or create the global registry instance."""
     global _registry
     if _registry is None:

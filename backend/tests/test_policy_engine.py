@@ -6,7 +6,6 @@ Tests each rule with allow and deny scenarios per the task requirements.
 
 import pytest
 from backend.domain.policy.engine import evaluate
-from backend.models.schemas import PolicyDecision
 
 
 # ===== Fixtures =====
@@ -76,23 +75,6 @@ def valid_policy_config():
     }
 
 
-@pytest.fixture
-def valid_app_config():
-    """Valid app config matching configuration.md."""
-    return {
-        "paths": {
-            "data_root": "./data",
-            "uploads": "./data/uploads",
-            "extraction": "./data/extraction",
-            "artifacts": "./data/artifacts",
-            "sandbox": "./data/sandbox",
-            "tmp": "./data/tmp",
-            "db": "./data/db/app.db",
-            "chroma": "./data/chroma",
-        }
-    }
-
-
 # ===== Rule 1: Registered & Enabled =====
 
 def test_allow_registered_and_enabled(valid_registry_entry, valid_capabilities_config, valid_policy_config):
@@ -104,8 +86,8 @@ def test_allow_registered_and_enabled(valid_registry_entry, valid_capabilities_c
         capabilities_config=valid_capabilities_config,
         policy_config=valid_policy_config,
     )
-    assert decision.decision == "allow"
-    assert decision.rule == "all_rules_passed"
+    assert decision["policy_decision"] == "allow"
+    assert decision["rule"] == "all_rules_passed"
 
 
 def test_deny_unknown_capability(valid_capabilities_config, valid_policy_config):
@@ -117,9 +99,9 @@ def test_deny_unknown_capability(valid_capabilities_config, valid_policy_config)
         capabilities_config=valid_capabilities_config,
         policy_config=valid_policy_config,
     )
-    assert decision.decision == "deny"
-    assert decision.rule == "unknown_capability"
-    assert "Unknown capability" in decision.reason
+    assert decision["policy_decision"] == "deny"
+    assert decision["rule"] == "unknown_capability"
+    assert "Unknown capability" in decision["policy_reason"]
 
 
 def test_deny_capability_not_enabled(valid_registry_entry, valid_policy_config):
@@ -136,9 +118,9 @@ def test_deny_capability_not_enabled(valid_registry_entry, valid_policy_config):
         capabilities_config=config,
         policy_config=valid_policy_config,
     )
-    assert decision.decision == "deny"
-    assert decision.rule == "capability_not_enabled"
-    assert "disabled" in decision.reason
+    assert decision["policy_decision"] == "deny"
+    assert decision["rule"] == "capability_not_enabled"
+    assert "disabled" in decision["policy_reason"]
 
 
 def test_deny_missing_enabled_flag(valid_registry_entry, valid_policy_config):
@@ -161,9 +143,9 @@ def test_deny_missing_enabled_flag(valid_registry_entry, valid_policy_config):
         capabilities_config=config,
         policy_config=valid_policy_config,
     )
-    assert decision.decision == "deny"
-    assert decision.rule == "capability_not_enabled"
-    assert "Missing enabled flag" in decision.reason
+    assert decision["policy_decision"] == "deny"
+    assert decision["rule"] == "capability_not_enabled"
+    assert "Missing enabled flag" in decision["policy_reason"]
 
 
 # ===== Rule 2: Permissions =====
@@ -177,7 +159,7 @@ def test_allow_valid_permissions(valid_registry_entry, valid_capabilities_config
         capabilities_config=valid_capabilities_config,
         policy_config=valid_policy_config,
     )
-    assert decision.decision == "allow"
+    assert decision["policy_decision"] == "allow"
 
 
 def test_deny_unrecognized_permission(valid_capabilities_config, valid_policy_config):
@@ -195,9 +177,9 @@ def test_deny_unrecognized_permission(valid_capabilities_config, valid_policy_co
         capabilities_config=valid_capabilities_config,
         policy_config=valid_policy_config,
     )
-    assert decision.decision == "deny"
-    assert decision.rule == "missing_permission"
-    assert "Unrecognized permission" in decision.reason
+    assert decision["policy_decision"] == "deny"
+    assert decision["rule"] == "missing_permission"
+    assert "Unrecognized permission" in decision["policy_reason"]
 
 
 def test_deny_permissions_not_a_list(valid_capabilities_config, valid_policy_config):
@@ -215,9 +197,9 @@ def test_deny_permissions_not_a_list(valid_capabilities_config, valid_policy_con
         capabilities_config=valid_capabilities_config,
         policy_config=valid_policy_config,
     )
-    assert decision.decision == "deny"
-    assert decision.rule == "missing_permission"
-    assert "must be a list" in decision.reason
+    assert decision["policy_decision"] == "deny"
+    assert decision["rule"] == "missing_permission"
+    assert "must be a list" in decision["policy_reason"]
 
 
 # ===== Rule 3: Network-Access Invariant =====
@@ -231,7 +213,7 @@ def test_allow_network_access_false(valid_registry_entry, valid_capabilities_con
         capabilities_config=valid_capabilities_config,
         policy_config=valid_policy_config,
     )
-    assert decision.decision == "allow"
+    assert decision["policy_decision"] == "allow"
 
 
 def test_deny_capability_network_access_true(valid_capabilities_config, valid_policy_config):
@@ -249,9 +231,9 @@ def test_deny_capability_network_access_true(valid_capabilities_config, valid_po
         capabilities_config=valid_capabilities_config,
         policy_config=valid_policy_config,
     )
-    assert decision.decision == "deny"
-    assert decision.rule == "network_access_invariant"
-    assert "network_access != false" in decision.reason
+    assert decision["policy_decision"] == "deny"
+    assert decision["rule"] == "network_access_invariant"
+    assert "network_access != false" in decision["policy_reason"]
 
 
 def test_deny_config_network_access_allowed_true(valid_registry_entry, valid_capabilities_config):
@@ -269,9 +251,9 @@ def test_deny_config_network_access_allowed_true(valid_registry_entry, valid_cap
         capabilities_config=valid_capabilities_config,
         policy_config=policy_config,
     )
-    assert decision.decision == "deny"
-    assert decision.rule == "network_access_invariant"
-    assert "Policy configuration allows network access" in decision.reason
+    assert decision["policy_decision"] == "deny"
+    assert decision["rule"] == "network_access_invariant"
+    assert "Policy configuration allows network access" in decision["policy_reason"]
 
 
 def test_deny_missing_policy_section(valid_registry_entry, valid_capabilities_config):
@@ -284,9 +266,9 @@ def test_deny_missing_policy_section(valid_registry_entry, valid_capabilities_co
         capabilities_config=valid_capabilities_config,
         policy_config=policy_config,
     )
-    assert decision.decision == "deny"
-    assert decision.rule == "network_access_invariant"
-    assert "Missing policy configuration" in decision.reason
+    assert decision["policy_decision"] == "deny"
+    assert decision["rule"] == "network_access_invariant"
+    assert "Missing policy configuration" in decision["policy_reason"]
 
 
 def test_deny_missing_network_access_allowed(valid_registry_entry, valid_capabilities_config):
@@ -304,14 +286,14 @@ def test_deny_missing_network_access_allowed(valid_registry_entry, valid_capabil
         capabilities_config=valid_capabilities_config,
         policy_config=policy_config,
     )
-    assert decision.decision == "deny"
-    assert decision.rule == "network_access_invariant"
-    assert "Missing network_access_allowed" in decision.reason
+    assert decision["policy_decision"] == "deny"
+    assert decision["rule"] == "network_access_invariant"
+    assert "Missing network_access_allowed" in decision["policy_reason"]
 
 
 # ===== Rule 4: Filesystem Scope =====
 
-def test_allow_valid_filesystem_scope(valid_registry_entry, valid_capabilities_config, valid_policy_config, valid_app_config):
+def test_allow_valid_filesystem_scope(valid_registry_entry, valid_capabilities_config, valid_policy_config):
     """Valid document_id within uploads scope should be allowed."""
     registry_entry = {
         "name": "extract_document",
@@ -325,12 +307,11 @@ def test_allow_valid_filesystem_scope(valid_registry_entry, valid_capabilities_c
         registry_entry=registry_entry,
         capabilities_config=valid_capabilities_config,
         policy_config=valid_policy_config,
-        app_config=valid_app_config,
     )
-    assert decision.decision == "allow"
+    assert decision["policy_decision"] == "allow"
 
 
-def test_deny_path_traversal_in_arguments(valid_registry_entry, valid_capabilities_config, valid_policy_config, valid_app_config):
+def test_deny_path_traversal_in_arguments(valid_registry_entry, valid_capabilities_config, valid_policy_config):
     """Path traversal (../) in arguments should be denied."""
     registry_entry = {
         "name": "extract_document",
@@ -344,13 +325,12 @@ def test_deny_path_traversal_in_arguments(valid_registry_entry, valid_capabiliti
         registry_entry=registry_entry,
         capabilities_config=valid_capabilities_config,
         policy_config=valid_policy_config,
-        app_config=valid_app_config,
     )
-    assert decision.decision == "deny"
-    assert decision.rule == "filesystem_scope_violation"
+    assert decision["policy_decision"] == "deny"
+    assert decision["rule"] == "filesystem_scope_violation"
 
 
-def test_deny_absolute_path_in_arguments(valid_registry_entry, valid_capabilities_config, valid_policy_config, valid_app_config):
+def test_deny_absolute_path_in_arguments(valid_registry_entry, valid_capabilities_config, valid_policy_config):
     """Absolute path in arguments should be denied."""
     registry_entry = {
         "name": "extract_document",
@@ -364,13 +344,12 @@ def test_deny_absolute_path_in_arguments(valid_registry_entry, valid_capabilitie
         registry_entry=registry_entry,
         capabilities_config=valid_capabilities_config,
         policy_config=valid_policy_config,
-        app_config=valid_app_config,
     )
-    assert decision.decision == "deny"
-    assert decision.rule == "filesystem_scope_violation"
+    assert decision["policy_decision"] == "deny"
+    assert decision["rule"] == "filesystem_scope_violation"
 
 
-def test_deny_execute_code_input_files_outside_sandbox(valid_capabilities_config, valid_policy_config, valid_app_config):
+def test_deny_execute_code_input_files_outside_sandbox(valid_capabilities_config, valid_policy_config):
     """execute_code input_files pointing outside sandbox should be denied."""
     registry_entry = {
         "name": "execute_code",
@@ -388,13 +367,12 @@ def test_deny_execute_code_input_files_outside_sandbox(valid_capabilities_config
         registry_entry=registry_entry,
         capabilities_config=valid_capabilities_config,
         policy_config=valid_policy_config,
-        app_config=valid_app_config,
     )
-    assert decision.decision == "deny"
-    assert decision.rule == "filesystem_scope_violation"
+    assert decision["policy_decision"] == "deny"
+    assert decision["rule"] == "filesystem_scope_violation"
 
 
-def test_allow_execute_code_valid_input_files(valid_registry_entry, valid_capabilities_config, valid_policy_config, valid_app_config):
+def test_allow_execute_code_valid_input_files(valid_registry_entry, valid_capabilities_config, valid_policy_config):
     """execute_code with valid input_files within sandbox should be allowed."""
     decision = evaluate(
         capability_name="execute_code",
@@ -406,9 +384,8 @@ def test_allow_execute_code_valid_input_files(valid_registry_entry, valid_capabi
         registry_entry=valid_registry_entry,
         capabilities_config=valid_capabilities_config,
         policy_config=valid_policy_config,
-        app_config=valid_app_config,
     )
-    assert decision.decision == "allow"
+    assert decision["policy_decision"] == "allow"
 
 
 def test_deny_path_outside_declared_scope(valid_capabilities_config, valid_policy_config):
@@ -429,10 +406,9 @@ def test_deny_path_outside_declared_scope(valid_capabilities_config, valid_polic
         registry_entry=registry_entry,
         capabilities_config=valid_capabilities_config,
         policy_config=valid_policy_config,
-        app_config=None,
     )
-    assert decision.decision == "deny"
-    assert decision.rule == "filesystem_scope_violation"
+    assert decision["policy_decision"] == "deny"
+    assert decision["rule"] == "filesystem_scope_violation"
 
 
 def test_allow_path_within_declared_scope(valid_capabilities_config, valid_policy_config):
@@ -453,9 +429,8 @@ def test_allow_path_within_declared_scope(valid_capabilities_config, valid_polic
         registry_entry=registry_entry,
         capabilities_config=valid_capabilities_config,
         policy_config=valid_policy_config,
-        app_config=None,
     )
-    assert decision.decision == "allow"
+    assert decision["policy_decision"] == "allow"
 
 
 def test_deny_capability_with_no_filesystem_scope_but_path_in_args(valid_capabilities_config, valid_policy_config):
@@ -476,11 +451,10 @@ def test_deny_capability_with_no_filesystem_scope_but_path_in_args(valid_capabil
         registry_entry=registry_entry,
         capabilities_config=valid_capabilities_config,
         policy_config=valid_policy_config,
-        app_config=None,
     )
     # generate_code doesn't extract paths from output_path (not in path_arg_keys)
     # So this should be allowed since the path isn't recognized as a filesystem arg
-    assert decision.decision == "allow"
+    assert decision["policy_decision"] == "allow"
 
 
 # ===== Rule 5: Resource Limits =====
@@ -499,7 +473,7 @@ def test_allow_timeout_within_limit(valid_registry_entry, valid_capabilities_con
         capabilities_config=valid_capabilities_config,
         policy_config=valid_policy_config,
     )
-    assert decision.decision == "allow"
+    assert decision["policy_decision"] == "allow"
 
 
 def test_deny_timeout_exceeds_limit(valid_registry_entry, valid_capabilities_config, valid_policy_config):
@@ -516,9 +490,9 @@ def test_deny_timeout_exceeds_limit(valid_registry_entry, valid_capabilities_con
         capabilities_config=valid_capabilities_config,
         policy_config=valid_policy_config,
     )
-    assert decision.decision == "deny"
-    assert decision.rule == "resource_limit_exceeded"
-    assert "exceeds configured limit" in decision.reason
+    assert decision["policy_decision"] == "deny"
+    assert decision["rule"] == "resource_limit_exceeded"
+    assert "exceeds configured limit" in decision["policy_reason"]
 
 
 def test_deny_missing_timeout_seconds_in_config(valid_registry_entry, valid_policy_config):
@@ -541,9 +515,9 @@ def test_deny_missing_timeout_seconds_in_config(valid_registry_entry, valid_poli
         capabilities_config=config,
         policy_config=valid_policy_config,
     )
-    assert decision.decision == "deny"
-    assert decision.rule == "resource_limit_exceeded"
-    assert "Missing timeout_seconds" in decision.reason
+    assert decision["policy_decision"] == "deny"
+    assert decision["rule"] == "resource_limit_exceeded"
+    assert "Missing timeout_seconds" in decision["policy_reason"]
 
 
 def test_deny_missing_max_output_bytes_in_execute_code_config(valid_registry_entry, valid_policy_config):
@@ -566,9 +540,9 @@ def test_deny_missing_max_output_bytes_in_execute_code_config(valid_registry_ent
         capabilities_config=config,
         policy_config=valid_policy_config,
     )
-    assert decision.decision == "deny"
-    assert decision.rule == "resource_limit_exceeded"
-    assert "Missing max_output_bytes" in decision.reason
+    assert decision["policy_decision"] == "deny"
+    assert decision["rule"] == "resource_limit_exceeded"
+    assert "Missing max_output_bytes" in decision["policy_reason"]
 
 
 def test_deny_invalid_max_output_bytes_in_config(valid_registry_entry, valid_policy_config):
@@ -591,9 +565,9 @@ def test_deny_invalid_max_output_bytes_in_config(valid_registry_entry, valid_pol
         capabilities_config=config,
         policy_config=valid_policy_config,
     )
-    assert decision.decision == "deny"
-    assert decision.rule == "resource_limit_exceeded"
-    assert "Invalid max_output_bytes" in decision.reason
+    assert decision["policy_decision"] == "deny"
+    assert decision["rule"] == "resource_limit_exceeded"
+    assert "Invalid max_output_bytes" in decision["policy_reason"]
 
 
 def test_allow_other_capabilities_without_max_output_bytes(valid_capabilities_config, valid_policy_config):
@@ -611,7 +585,7 @@ def test_allow_other_capabilities_without_max_output_bytes(valid_capabilities_co
         capabilities_config=valid_capabilities_config,
         policy_config=valid_policy_config,
     )
-    assert decision.decision == "allow"
+    assert decision["policy_decision"] == "allow"
 
 
 def test_allow_create_docx_without_max_output_bytes(valid_capabilities_config, valid_policy_config):
@@ -629,21 +603,21 @@ def test_allow_create_docx_without_max_output_bytes(valid_capabilities_config, v
         capabilities_config=valid_capabilities_config,
         policy_config=valid_policy_config,
     )
-    assert decision.decision == "allow"
+    assert decision["policy_decision"] == "allow"
 
 
 # ===== Determinism =====
 
-def test_determinism(valid_registry_entry, valid_capabilities_config, valid_policy_config, valid_app_config):
+def test_determinism(valid_registry_entry, valid_capabilities_config, valid_policy_config):
     """100 evaluations of the same input yield identical Decision."""
     args = {"code": "print('hello')", "language": "python", "input_files": []}
-    first = evaluate("execute_code", args, valid_registry_entry, valid_capabilities_config, valid_policy_config, valid_app_config)
-    
+    first = evaluate("execute_code", args, valid_registry_entry, valid_capabilities_config, valid_policy_config)
+
     for _ in range(99):
-        decision = evaluate("execute_code", args, valid_registry_entry, valid_capabilities_config, valid_policy_config, valid_app_config)
-        assert decision.decision == first.decision
-        assert decision.reason == first.reason
-        assert decision.rule == first.rule
+        decision = evaluate("execute_code", args, valid_registry_entry, valid_capabilities_config, valid_policy_config)
+        assert decision["policy_decision"] == first["policy_decision"]
+        assert decision["policy_reason"] == first["policy_reason"]
+        assert decision["rule"] == first["rule"]
 
 
 # ===== Malformed Arguments =====
@@ -657,9 +631,9 @@ def test_deny_malformed_arguments_not_dict(valid_registry_entry, valid_capabilit
         capabilities_config=valid_capabilities_config,
         policy_config=valid_policy_config,
     )
-    assert decision.decision == "deny"
-    assert decision.rule == "malformed_arguments"
-    assert "Arguments must be a dictionary" in decision.reason
+    assert decision["policy_decision"] == "deny"
+    assert decision["rule"] == "malformed_arguments"
+    assert "Arguments must be a dictionary" in decision["policy_reason"]
 
 
 # ===== No Side Effects / Imports Check =====
@@ -667,11 +641,11 @@ def test_deny_malformed_arguments_not_dict(valid_registry_entry, valid_capabilit
 def test_no_forbidden_imports():
     """Verify engine.py doesn't import forbidden modules."""
     import backend.domain.policy.engine as engine_module
-    
+
     # Check source doesn't contain forbidden imports
     import inspect
     source = inspect.getsource(engine_module)
-    
+
     forbidden_patterns = [
         "from backend.domain.model_runtime",
         "from backend.domain.audit",
@@ -682,7 +656,7 @@ def test_no_forbidden_imports():
         "emit",
         "AuditEvent",
     ]
-    
+
     for pattern in forbidden_patterns:
         assert pattern not in source, f"Forbidden import/pattern found: {pattern}"
 
