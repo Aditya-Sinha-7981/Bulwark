@@ -22,6 +22,7 @@
 # one feature; they are not project history, so they never enter Git.
 # Do not `git add -f` a task file. Do not move task files into docs/.
 /tasks/
+/members/
 
 # Belt-and-suspenders: a task file belongs in tasks/, never at the repo root.
 /*-task.md

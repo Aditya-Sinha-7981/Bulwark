@@ -860,14 +860,16 @@ After provisioning, **disconnect from network** and re-run full startup + repres
 
 ## 24. Git Workflow
 
-Simple PR-based flow:
+**AI Git authority (read first):** Git mutation is human-only. An AI coding agent may inspect Git state (`git status`, `git diff`, `git log`, `git branch`, `git show`, non-mutating `git fetch`), create a local feature branch, and propose a commit message / PR description — but it must never run `git add`, `git commit`, `git push`, `git merge`, `git rebase`, delete a branch, or create/approve/merge a Pull Request. Full table: `docs/git-workflow.md` §0.
+
+Simple PR-based flow (executed by the human developer, from the AI's prepared diff/tests/log entry/suggested message):
 - Start: update main → create branch (`feature/<desc>` or `fix/<desc>`).
 - During: focused commits (one logical change each), meaningful messages readable without diff.
 - Before push: confirm correct branch (`git status`), run tests, inspect diff + status.
 - Push branch.
 - Integrate via PR with summary, files changed, tests performed, screenshots if UI, known limitations, related issue.
 
-**AI coding-agent rule:** AI agents must never work on `main`. Always: update main → branch → implement → test → review diff → commit → push → PR.
+**AI coding-agent rule:** AI agents must never work on `main`, and must never run `git commit`, `git push`, or create/approve/merge a Pull Request. Always: update main → branch → implement → test → review diff → **propose a commit message, then stop** — the human developer commits, pushes, and opens/merges the PR.
 
 ---
 

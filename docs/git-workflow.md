@@ -4,6 +4,29 @@ Deliberately simple, and meant to stay that way. Six people, mixed OS / GPU / RA
 
 ---
 
+## 0. AI Git authority — read this first
+
+**Git mutation is human-only.**
+
+AI coding agents may inspect Git state and prepare commit/PR information, but they do not stage, commit, push, merge, rebase, delete a branch, or otherwise modify remote repository state. AI may propose an exact commit message and PR description; the human developer decides whether to use them and performs the actual operation.
+
+| Action | AI coding agent | Human developer |
+|---|---|---|
+| `git status`, `git diff`, `git log`, `git branch`, `git show`, non-mutating `git fetch` | ✅ | ✅ |
+| Create/edit repository files, including `logs/<feature>.md` | ✅ | ✅ |
+| Create/check out a local feature branch (`git checkout -b feature/<name>`, never `main`) | ✅ | ✅ |
+| Propose a commit message / PR title & description | ✅ | ✅ |
+| `git add`, `git commit` | ❌ never | ✅ |
+| `git push`, including force-push | ❌ never | ✅ |
+| `git merge`, `git rebase` | ❌ never | ✅ |
+| Branch deletion, local or remote | ❌ never | ✅ |
+| Open, approve, or merge a Pull Request | ❌ never | ✅ |
+| Any other mutation of Git history or the remote repository | ❌ never | ✅ |
+
+Every "commit → push → PR" phrase elsewhere in this document (and in `AGENTS.md`, `README.md`, `docs/project-context.md`, `docs/AI-CONTEXT.md`) describes steps the **human developer** performs, using the AI's prepared diff, tests, log entry, and suggested commit message. None of those phrases are an instruction for an AI agent to run those commands itself — §14 below states the AI-specific rules explicitly.
+
+---
+
 ## 1. The team Git model
 
 Four things, four different jobs. Keep them straight and the rest follows.
@@ -113,7 +136,7 @@ log      logs/feature-rag.md           (tracked)
 
 **File:** `logs/<feature>.md`, one per feature/workstream. Branch `feature/rag-retrieval` → `logs/feature-rag-retrieval.md`. If the branch is one of several in a broader workstream, write to the workstream log instead (e.g. `logs/feature-rag.md`) — choose the name when the workstream is created and keep it stable.
 
-**Create it on your first commit** if it doesn't exist. It's a normal tracked file:
+**Create it when the workstream starts** if it doesn't exist. It's a normal tracked file — an AI agent creates or edits it directly as a file edit (not a Git operation); the human developer stages and commits it alongside the code it describes:
 
 ```bash
 git add logs/feature-<name>.md
@@ -133,6 +156,8 @@ git commit -m "..."
 ---
 
 ## 7. Working while `main` changes
+
+*(Human developer executes the commands below — `git merge` mutates history, so an AI agent never runs it; see §0. An AI agent can flag that a merge is needed and what to expect from it, but stops there.)*
 
 Other people merge while you're mid-branch. That's expected.
 
@@ -159,6 +184,8 @@ Resolve any conflicts, run the tests that apply to your change (`testing.md`), t
 ---
 
 ## 8. Updating a feature branch from `main` (before the PR)
+
+*(Human developer executes `git merge`/`git push` below; see §0.)*
 
 Right before pushing the final version and opening the PR, sync again:
 
@@ -190,6 +217,8 @@ This team uses **`git merge main`**, not rebase, as the standard. Merge is predi
 
 ## 10. Push and PR
 
+*(Human developer only, from the AI's prepared diff/tests/log entry/suggested message; see §0.)*
+
 ```bash
 git push origin feature/<name>
 ```
@@ -219,6 +248,8 @@ The PR contains implementation code, `docs/` changes if the task required them, 
 
 ## 11. Review and merge
 
+*(Human developer only — an AI agent never merges a PR, including its own; see §0.)*
+
 - The reviewer checks the diff against the task file's scope and acceptance criteria, and against the locked rules in `AGENTS.md` §6.
 - The reviewer can read `logs/<feature>.md` for the reasoning behind non-obvious changes.
 - Required tests pass.
@@ -236,6 +267,8 @@ main
 ---
 
 ## 12. Branch deletion
+
+*(Human developer only — branch deletion is a prohibited AI operation regardless of local/remote; see §0.)*
 
 Feature branches are temporary integration branches. Once the PR is merged, delete the branch:
 
@@ -269,9 +302,9 @@ Deleting the branch loses nothing that matters — the permanent history was nev
 
 ## 14. AI coding-agent rules
 
-Unchanged in spirit; restated for the task/log model. An AI agent working on Bulwark must:
+Unchanged in spirit; restated for the task/log model. See §0 for the full AI/human Git authority table — the summary here is task-workflow-specific. An AI agent working on Bulwark must:
 
-- **Never work directly on `main`.** Branch first, always — no exception for "a quick fix" or "a docs typo".
+- **Never work directly on `main`.** Branch first, always — no exception for "a quick fix" or "a docs typo". The AI may create the local branch itself (`git checkout -b feature/<name>`); that is not a history or remote mutation.
 - Read `AGENTS.md` completely at the start of every session.
 - Read `docs/project-context.md` and the relevant detailed architecture/contract doc for the task area.
 - Read the assigned `tasks/<feature>-task.md`.
@@ -281,14 +314,15 @@ Unchanged in spirit; restated for the task/log model. An AI agent working on Bul
 - Make the smallest coherent change that satisfies the task.
 - Write tests for new behavior; run the relevant test category from `testing.md`.
 - **Append a meaningful entry to `logs/<feature>.md`.** Never edit past entries. Never touch another feature's log.
-- Inspect `git diff` before committing.
-- Commit on the feature branch, push it, open a PR. Never `git add -f` a task file.
+- Inspect `git diff` and `git status` when the work is ready, and report the results.
+- **Never stage, commit, push, merge, rebase, delete a branch, or open/approve/merge a Pull Request.** Propose an exact commit message and a PR summary, then stop and hand off. The human developer runs `git add`, `git commit`, `git push`, and opens/merges the PR. Never `git add -f` a task file — that's a Git mutation like any other, and it belongs to the human (task files are git-ignored and shouldn't be force-added regardless).
 
-Canonical per-task procedure:
+Canonical per-task procedure, actors explicit:
 
 ```
 update main → branch → read task + log → implement in scope → test
-→ review diff → append log entry → commit → push → PR
+→ review diff → append log entry → AI proposes commit message
+→ human commits → human pushes → human opens PR → human reviews/merges
 ```
 
 This mirrors the AI Coding Agent Operating Procedure in `docs/project-context.md` — the steps there that say "use the project's Git workflow" point here for the mechanics.
@@ -296,6 +330,8 @@ This mirrors the AI Coding Agent Operating Procedure in `docs/project-context.md
 ---
 
 ## 15. Final workflow and checklist
+
+When an AI coding agent is doing the implementation, everything through "Review git diff / git status" below is the AI's job; everything from "Focused commits" onward (commit, merge into main, branch deletion) is the human developer's job — see §0.
 
 ```
 Project lead writes tasks/<feature>-task.md

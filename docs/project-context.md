@@ -129,11 +129,10 @@ This procedure is generic and can be customized later. Follow it for every task:
 5. Do not silently change architectural decisions — flag and ask instead.
 6. Implement the smallest coherent change.
 7. Run relevant tests/checks.
-8. Inspect the diff.
+8. Inspect the diff (`git diff`, `git status`).
 9. Update documentation if the implementation changes a documented contract.
-10. Commit the work using the project's Git workflow (`git-workflow.md`).
-11. Push the branch.
-12. Report what changed, what was tested, and any remaining issues.
+10. Propose an exact commit message per the project's Git workflow (`git-workflow.md` §0). **Never run `git add`, `git commit`, `git push`, or open/merge a PR** — the human developer performs every Git and PR mutation.
+11. Report what changed, what was tested, any remaining issues, and the proposed commit message, then stop.
 
 ## How to verify your work
 
@@ -144,4 +143,4 @@ This procedure is generic and can be customized later. Follow it for every task:
 
 ## Git workflow summary
 
-Update main → create a branch (`feature/<desc>` or `fix/<desc>`) → implement → test → review diff → commit → push → PR. Never commit directly to main. Full detail: `git-workflow.md`.
+Update main → create a branch (`feature/<desc>` or `fix/<desc>`) → AI implements → AI tests → AI reviews diff → AI proposes a commit message → **human commits → human pushes → human opens PR.** Never commit directly to main. AI coding agents never run `git commit`, `git push`, or any PR operation themselves — see `git-workflow.md` §0 for the full AI/human boundary. Full detail: `git-workflow.md`.
