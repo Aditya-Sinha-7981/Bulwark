@@ -21,7 +21,7 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
-from models.schemas import (
+from backend.models.schemas import (
     AppConfig,
     AppFile,
     CapabilitiesFile,

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pathlib
 
-from config import REPO_ROOT, settings
+from backend.config import REPO_ROOT, settings
 
 
 def _resolve_root(relative: str) -> pathlib.Path:
