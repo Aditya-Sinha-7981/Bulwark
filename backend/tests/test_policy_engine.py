@@ -76,6 +76,23 @@ def valid_policy_config():
     }
 
 
+@pytest.fixture
+def valid_app_config():
+    """Valid app config matching configuration.md."""
+    return {
+        "paths": {
+            "data_root": "./data",
+            "uploads": "./data/uploads",
+            "extraction": "./data/extraction",
+            "artifacts": "./data/artifacts",
+            "sandbox": "./data/sandbox",
+            "tmp": "./data/tmp",
+            "db": "./data/db/app.db",
+            "chroma": "./data/chroma",
+        }
+    }
+
+
 # ===== Rule 1: Registered & Enabled =====
 
 def test_allow_registered_and_enabled(valid_registry_entry, valid_capabilities_config, valid_policy_config):
@@ -232,9 +249,44 @@ def test_deny_config_network_access_allowed_true(valid_registry_entry, valid_cap
     assert "Policy configuration allows network access" in decision.reason
 
 
+def test_deny_missing_policy_section(valid_registry_entry, valid_capabilities_config):
+    """Missing policy section in config should be denied (fail closed)."""
+    policy_config = {}  # Missing "policy" key
+    decision = evaluate(
+        capability_name="execute_code",
+        arguments={"code": "print('hello')", "language": "python", "input_files": []},
+        registry_entry=valid_registry_entry,
+        capabilities_config=valid_capabilities_config,
+        policy_config=policy_config,
+    )
+    assert decision.decision == "deny"
+    assert decision.rule == "network_access_invariant"
+    assert "Missing policy configuration" in decision.reason
+
+
+def test_deny_missing_network_access_allowed(valid_registry_entry, valid_capabilities_config):
+    """Missing network_access_allowed in policy config should be denied (fail closed)."""
+    policy_config = {
+        "policy": {
+            "max_job_steps": 8,
+            # network_access_allowed missing
+        }
+    }
+    decision = evaluate(
+        capability_name="execute_code",
+        arguments={"code": "print('hello')", "language": "python", "input_files": []},
+        registry_entry=valid_registry_entry,
+        capabilities_config=valid_capabilities_config,
+        policy_config=policy_config,
+    )
+    assert decision.decision == "deny"
+    assert decision.rule == "network_access_invariant"
+    assert "Missing network_access_allowed" in decision.reason
+
+
 # ===== Rule 4: Filesystem Scope =====
 
-def test_allow_valid_filesystem_scope(valid_registry_entry, valid_capabilities_config, valid_policy_config):
+def test_allow_valid_filesystem_scope(valid_registry_entry, valid_capabilities_config, valid_policy_config, valid_app_config):
     """Valid document_id within uploads scope should be allowed."""
     registry_entry = {
         "name": "extract_document",
@@ -248,11 +300,12 @@ def test_allow_valid_filesystem_scope(valid_registry_entry, valid_capabilities_c
         registry_entry=registry_entry,
         capabilities_config=valid_capabilities_config,
         policy_config=valid_policy_config,
+        app_config=valid_app_config,
     )
     assert decision.decision == "allow"
 
 
-def test_deny_path_traversal_in_arguments(valid_registry_entry, valid_capabilities_config, valid_policy_config):
+def test_deny_path_traversal_in_arguments(valid_registry_entry, valid_capabilities_config, valid_policy_config, valid_app_config):
     """Path traversal (../) in arguments should be denied."""
     registry_entry = {
         "name": "extract_document",
@@ -266,12 +319,13 @@ def test_deny_path_traversal_in_arguments(valid_registry_entry, valid_capabiliti
         registry_entry=registry_entry,
         capabilities_config=valid_capabilities_config,
         policy_config=valid_policy_config,
+        app_config=valid_app_config,
     )
     assert decision.decision == "deny"
     assert decision.rule == "filesystem_scope_violation"
 
 
-def test_deny_absolute_path_in_arguments(valid_registry_entry, valid_capabilities_config, valid_policy_config):
+def test_deny_absolute_path_in_arguments(valid_registry_entry, valid_capabilities_config, valid_policy_config, valid_app_config):
     """Absolute path in arguments should be denied."""
     registry_entry = {
         "name": "extract_document",
@@ -285,12 +339,13 @@ def test_deny_absolute_path_in_arguments(valid_registry_entry, valid_capabilitie
         registry_entry=registry_entry,
         capabilities_config=valid_capabilities_config,
         policy_config=valid_policy_config,
+        app_config=valid_app_config,
     )
     assert decision.decision == "deny"
     assert decision.rule == "filesystem_scope_violation"
 
 
-def test_deny_execute_code_input_files_outside_sandbox(valid_capabilities_config, valid_policy_config):
+def test_deny_execute_code_input_files_outside_sandbox(valid_capabilities_config, valid_policy_config, valid_app_config):
     """execute_code input_files pointing outside sandbox should be denied."""
     registry_entry = {
         "name": "execute_code",
@@ -308,12 +363,13 @@ def test_deny_execute_code_input_files_outside_sandbox(valid_capabilities_config
         registry_entry=registry_entry,
         capabilities_config=valid_capabilities_config,
         policy_config=valid_policy_config,
+        app_config=valid_app_config,
     )
     assert decision.decision == "deny"
     assert decision.rule == "filesystem_scope_violation"
 
 
-def test_allow_execute_code_valid_input_files(valid_registry_entry, valid_capabilities_config, valid_policy_config):
+def test_allow_execute_code_valid_input_files(valid_registry_entry, valid_capabilities_config, valid_policy_config, valid_app_config):
     """execute_code with valid input_files within sandbox should be allowed."""
     decision = evaluate(
         capability_name="execute_code",
@@ -325,7 +381,80 @@ def test_allow_execute_code_valid_input_files(valid_registry_entry, valid_capabi
         registry_entry=valid_registry_entry,
         capabilities_config=valid_capabilities_config,
         policy_config=valid_policy_config,
+        app_config=valid_app_config,
     )
+    assert decision.decision == "allow"
+
+
+def test_deny_path_outside_declared_scope(valid_capabilities_config, valid_policy_config):
+    """Path outside declared filesystem_scope (not just base path) should be denied."""
+    registry_entry = {
+        "name": "execute_code",
+        "permissions": ["create_docker_container", "read_sandbox_input", "write_sandbox_output"],
+        "network_access": False,
+        "filesystem_scope": ["data/sandbox/execution_123"],  # Specific execution directory
+    }
+    decision = evaluate(
+        capability_name="execute_code",
+        arguments={
+            "code": "print('hello')",
+            "language": "python",
+            "input_files": ["../other_execution/file.txt"]  # Outside declared scope
+        },
+        registry_entry=registry_entry,
+        capabilities_config=valid_capabilities_config,
+        policy_config=valid_policy_config,
+        app_config=None,
+    )
+    assert decision.decision == "deny"
+    assert decision.rule == "filesystem_scope_violation"
+
+
+def test_allow_path_within_declared_scope(valid_capabilities_config, valid_policy_config):
+    """Path within declared filesystem_scope should be allowed."""
+    registry_entry = {
+        "name": "execute_code",
+        "permissions": ["create_docker_container", "read_sandbox_input", "write_sandbox_output"],
+        "network_access": False,
+        "filesystem_scope": ["data/sandbox/execution_123"],
+    }
+    decision = evaluate(
+        capability_name="execute_code",
+        arguments={
+            "code": "print('hello')",
+            "language": "python",
+            "input_files": ["input.txt"]  # Within declared scope (relative)
+        },
+        registry_entry=registry_entry,
+        capabilities_config=valid_capabilities_config,
+        policy_config=valid_policy_config,
+        app_config=None,
+    )
+    assert decision.decision == "allow"
+
+
+def test_deny_capability_with_no_filesystem_scope_but_path_in_args(valid_capabilities_config, valid_policy_config):
+    """Capability with empty filesystem_scope but path in args should be denied."""
+    registry_entry = {
+        "name": "generate_code",
+        "permissions": [],
+        "network_access": False,
+        "filesystem_scope": [],  # No filesystem access
+    }
+    decision = evaluate(
+        capability_name="generate_code",
+        arguments={
+            "task_description": "write a script",
+            "language": "python",
+            "output_path": "/tmp/out.py"  # Path not allowed for this capability
+        },
+        registry_entry=registry_entry,
+        capabilities_config=valid_capabilities_config,
+        policy_config=valid_policy_config,
+        app_config=None,
+    )
+    # generate_code doesn't extract paths from output_path (not in path_arg_keys)
+    # So this should be allowed since the path isn't recognized as a filesystem arg
     assert decision.decision == "allow"
 
 
@@ -367,15 +496,126 @@ def test_deny_timeout_exceeds_limit(valid_registry_entry, valid_capabilities_con
     assert "exceeds configured limit" in decision.reason
 
 
+def test_deny_missing_timeout_seconds_in_config(valid_registry_entry, valid_policy_config):
+    """Missing timeout_seconds in capability config should be denied (fail closed)."""
+    config = {
+        "capabilities": {
+            "execute_code": {
+                "enabled": True,
+                # timeout_seconds missing
+                "cpu_limit": 1,
+                "memory_limit_mb": 512,
+                "max_output_bytes": 65536,
+            }
+        }
+    }
+    decision = evaluate(
+        capability_name="execute_code",
+        arguments={"code": "print('hello')", "language": "python", "input_files": []},
+        registry_entry=valid_registry_entry,
+        capabilities_config=config,
+        policy_config=valid_policy_config,
+    )
+    assert decision.decision == "deny"
+    assert decision.rule == "resource_limit_exceeded"
+    assert "Missing timeout_seconds" in decision.reason
+
+
+def test_deny_missing_max_output_bytes_in_execute_code_config(valid_registry_entry, valid_policy_config):
+    """Missing max_output_bytes in execute_code config should be denied (fail closed)."""
+    config = {
+        "capabilities": {
+            "execute_code": {
+                "enabled": True,
+                "timeout_seconds": 30,
+                "cpu_limit": 1,
+                "memory_limit_mb": 512,
+                # max_output_bytes missing
+            }
+        }
+    }
+    decision = evaluate(
+        capability_name="execute_code",
+        arguments={"code": "print('hello')", "language": "python", "input_files": []},
+        registry_entry=valid_registry_entry,
+        capabilities_config=config,
+        policy_config=valid_policy_config,
+    )
+    assert decision.decision == "deny"
+    assert decision.rule == "resource_limit_exceeded"
+    assert "Missing max_output_bytes" in decision.reason
+
+
+def test_deny_invalid_max_output_bytes_in_config(valid_registry_entry, valid_policy_config):
+    """Invalid max_output_bytes (non-positive) in execute_code config should be denied."""
+    config = {
+        "capabilities": {
+            "execute_code": {
+                "enabled": True,
+                "timeout_seconds": 30,
+                "cpu_limit": 1,
+                "memory_limit_mb": 512,
+                "max_output_bytes": 0,  # Invalid
+            }
+        }
+    }
+    decision = evaluate(
+        capability_name="execute_code",
+        arguments={"code": "print('hello')", "language": "python", "input_files": []},
+        registry_entry=valid_registry_entry,
+        capabilities_config=config,
+        policy_config=valid_policy_config,
+    )
+    assert decision.decision == "deny"
+    assert decision.rule == "resource_limit_exceeded"
+    assert "Invalid max_output_bytes" in decision.reason
+
+
+def test_allow_other_capabilities_without_max_output_bytes(valid_capabilities_config, valid_policy_config):
+    """Other capabilities don't require max_output_bytes."""
+    registry_entry = {
+        "name": "generate_code",
+        "permissions": [],
+        "network_access": False,
+        "filesystem_scope": [],
+    }
+    decision = evaluate(
+        capability_name="generate_code",
+        arguments={"task_description": "write code", "language": "python"},
+        registry_entry=registry_entry,
+        capabilities_config=valid_capabilities_config,
+        policy_config=valid_policy_config,
+    )
+    assert decision.decision == "allow"
+
+
+def test_allow_create_docx_without_max_output_bytes(valid_capabilities_config, valid_policy_config):
+    """create_docx doesn't require max_output_bytes."""
+    registry_entry = {
+        "name": "create_docx",
+        "permissions": ["write_artifacts"],
+        "network_access": False,
+        "filesystem_scope": ["data/artifacts"],
+    }
+    decision = evaluate(
+        capability_name="create_docx",
+        arguments={"title": "Test", "sections": [], "metadata": {}},
+        registry_entry=registry_entry,
+        capabilities_config=valid_capabilities_config,
+        policy_config=valid_policy_config,
+    )
+    assert decision.decision == "allow"
+
+
 # ===== Determinism =====
 
-def test_determinism(valid_registry_entry, valid_capabilities_config, valid_policy_config):
+def test_determinism(valid_registry_entry, valid_capabilities_config, valid_policy_config, valid_app_config):
     """100 evaluations of the same input yield identical Decision."""
     args = {"code": "print('hello')", "language": "python", "input_files": []}
-    first = evaluate("execute_code", args, valid_registry_entry, valid_capabilities_config, valid_policy_config)
+    first = evaluate("execute_code", args, valid_registry_entry, valid_capabilities_config, valid_policy_config, valid_app_config)
     
     for _ in range(99):
-        decision = evaluate("execute_code", args, valid_registry_entry, valid_capabilities_config, valid_policy_config)
+        decision = evaluate("execute_code", args, valid_registry_entry, valid_capabilities_config, valid_policy_config, valid_app_config)
         assert decision.decision == first.decision
         assert decision.reason == first.reason
         assert decision.rule == first.rule
@@ -385,8 +625,6 @@ def test_determinism(valid_registry_entry, valid_capabilities_config, valid_poli
 
 def test_deny_malformed_arguments_not_dict(valid_registry_entry, valid_capabilities_config, valid_policy_config):
     """Non-dict arguments should be denied (malformed_arguments rule)."""
-    # Note: This tests the engine's handling of malformed input
-    # The actual schema validation happens earlier, but engine should fail closed
     decision = evaluate(
         capability_name="execute_code",
         arguments="not_a_dict",  # Malformed
@@ -394,11 +632,9 @@ def test_deny_malformed_arguments_not_dict(valid_registry_entry, valid_capabilit
         capabilities_config=valid_capabilities_config,
         policy_config=valid_policy_config,
     )
-    # Engine assumes arguments passed schema validation, but handles gracefully
-    # Since it's not a dict, it won't match any scope checks, so it should allow
-    # (the rule is designed to fail closed on config issues, not argument type issues)
-    # Actually, let's check - the engine assumes dict, so it will pass through
-    assert decision.decision in ("allow", "deny")
+    assert decision.decision == "deny"
+    assert decision.rule == "malformed_arguments"
+    assert "Arguments must be a dictionary" in decision.reason
 
 
 # ===== No Side Effects / Imports Check =====

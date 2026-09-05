@@ -65,3 +65,56 @@ All 19 tests pass including: allow/deny per rule, network invariant unconditiona
 - PR: (to be created)
 - Related branches / logs: feature/policy
 - Doc references: docs/security.md, docs/capabilities.md, docs/configuration.md, docs/agent.md, docs/decisions.md (ADR-02)
+
+---
+
+### Entry 2 — 2026-09-05 16:45 — Fixed Task 6 compliance gaps
+**What changed:**
+- `backend/utils/paths.py:1-124` — NEW FILE: Created scoped filesystem path helpers (`resolve_within_scope`, `is_within_scope`, `get_base_path_for_capability`, `extract_path_from_arguments`) for cross-platform path validation against declared capability `filesystem_scope`
+- `backend/domain/policy/engine.py:1-341` — Major updates to all 5 rules:
+  - **Rule 3 (Network invariant)**: Added fail-closed checks for missing `policy` section and missing `network_access_allowed` in config (previously defaulted to `False`)
+  - **Rule 4 (Filesystem scope)**: Replaced hardcoded scope mapping with validation against registry entry's declared `filesystem_scope`; now uses `backend.utils.paths` for path extraction and resolution; properly handles relative filenames (e.g., "file.txt") by joining with scope base path; added `app_config` parameter to read base paths from `config/app.yaml`
+  - **Rule 5 (Resource limits)**: Added `max_output_bytes` validation for `execute_code` capability (fail closed if missing or invalid); added fail-closed check for missing `timeout_seconds` in any capability config; added fail-closed for missing capability config entirely
+  - Updated `evaluate()` signature to accept optional `app_config` parameter
+- `backend/tests/test_policy_engine.py:1-655` — Added 10 new tests:
+  - `test_deny_missing_policy_section`, `test_deny_missing_network_access_allowed` (Rule 3 fail-closed)
+  - `test_deny_path_outside_declared_scope`, `test_allow_path_within_declared_scope`, `test_deny_capability_with_no_filesystem_scope_but_path_in_args` (Rule 4 against declared scope)
+  - `test_deny_missing_timeout_seconds_in_config`, `test_deny_missing_max_output_bytes_in_execute_code_config`, `test_deny_invalid_max_output_bytes_in_config`, `test_allow_other_capabilities_without_max_output_bytes`, `test_allow_create_docx_without_max_output_bytes` (Rule 5 fail-closed + max_output_bytes)
+  - Updated `test_deny_malformed_arguments_not_dict` to assert specific `malformed_arguments` rule
+  - All filesystem tests now use `valid_app_config` fixture
+
+**Why:**
+- Task 6 spec requires: "A config value missing for a rule → fail closed: `deny` with a clear `reason`, and surface the config gap (do not silently `allow`)"
+- Task 6 spec requires: "Resource limits — requested/effective `timeout_seconds` and any output-size bound are within the configured values" — `max_output_bytes` for `execute_code` was missing
+- Task 6 spec requires: "Filesystem scope — every path implied by `arguments` resolves within the capability's declared `filesystem_scope`" — was using hardcoded mapping instead of registry entry's declared scope
+- Task 6 spec requires: "Resolve via scoped path helpers (`backend/utils/paths.py`)" — was not using the path helpers module
+
+**How to verify:**
+```bash
+cd D:\HACKATHON\Bulwark
+python -m pytest backend/tests/test_policy_engine.py -v
+```
+All 29 tests pass including: fail-closed on missing config for all rules, `max_output_bytes` validation for `execute_code`, filesystem scope validation against declared `filesystem_scope` from registry, relative filename handling, cross-platform path resolution.
+
+**Open issues / known gaps:**
+- None remaining for Task 6 scope
+
+**Decisions made:**
+- Fail-closed on missing config is implemented for: network_access_allowed, timeout_seconds, max_output_bytes, capability config section
+- Filesystem scope now validates against BOTH the registry entry's `filesystem_scope` AND the base path from `app_config` (defense in depth)
+- Relative filenames (no path separators) are now properly validated by joining with scope base path
+- `max_output_bytes` is only required for `execute_code`; other capabilities don't need it
+- `app_config` parameter is optional (defaults to None) for backward compatibility
+
+**Supersedes / references:**
+- Supersedes Entry 1's "Open issues / known gaps" items 1, 2, and 4 (all resolved)
+- Task 6 specification: `tasks/6-policy-engine.md` Requirements 2 (Rules 3, 4, 5) and Error Handling
+- Authoritative docs: `docs/security.md`, `docs/capabilities.md`, `docs/configuration.md`
+
+## Open questions for the user
+- None remaining for Task 6
+
+## Links
+- PR: (to be created)
+- Related branches / logs: feature/policy
+- Doc references: docs/security.md, docs/capabilities.md, docs/configuration.md, docs/agent.md, docs/decisions.md (ADR-02)

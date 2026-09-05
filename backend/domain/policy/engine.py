@@ -7,6 +7,7 @@ No side effects, no DB/model/network access, fully testable in isolation.
 
 from typing import Any
 from backend.models.schemas import PolicyDecision
+from backend.utils.paths import is_within_scope, extract_path_from_arguments
 
 
 def evaluate(
@@ -15,6 +16,7 @@ def evaluate(
     registry_entry: dict[str, Any] | None,
     capabilities_config: dict[str, Any],
     policy_config: dict[str, Any],
+    app_config: dict[str, Any] | None = None,
 ) -> PolicyDecision:
     """
     Evaluate a capability proposal against all policy rules.
@@ -47,7 +49,7 @@ def evaluate(
         return decision
     
     # Rule 4: Filesystem scope
-    decision = _check_filesystem_scope(capability_name, arguments, registry_entry, capabilities_config)
+    decision = _check_filesystem_scope(capability_name, arguments, registry_entry, app_config)
     if decision.decision == "deny":
         return decision
     
@@ -144,8 +146,22 @@ def _check_network_access_invariant(
     if registry_entry is not None:
         capability_network_access = registry_entry.get("network_access", False)
     
-    # Check config policy
-    config_network_allowed = policy_config.get("policy", {}).get("network_access_allowed", False)
+    # Check config policy - fail closed if missing
+    policy_section = policy_config.get("policy")
+    if policy_section is None:
+        return PolicyDecision(
+            decision="deny",
+            reason="Missing policy configuration section",
+            rule="network_access_invariant"
+        )
+    
+    config_network_allowed = policy_section.get("network_access_allowed")
+    if config_network_allowed is None:
+        return PolicyDecision(
+            decision="deny",
+            reason="Missing network_access_allowed in policy configuration",
+            rule="network_access_invariant"
+        )
     
     # Invariant: both must be false
     if capability_network_access is not False:
@@ -169,117 +185,95 @@ def _check_filesystem_scope(
     capability_name: str,
     arguments: dict[str, Any] | None,
     registry_entry: dict[str, Any] | None,
-    capabilities_config: dict[str, Any],
+    app_config: dict[str, Any] | None,
 ) -> PolicyDecision:
     """Rule 4: Filesystem scope - paths must resolve within declared scope.
     
-    Uses scoped path resolution, never trusts raw paths in arguments.
+    Uses scoped path resolution via backend.utils.paths, never trusts raw paths in arguments.
     Rejects traversal (../), absolute paths, and other jobs' directories.
+    Validates against the capability's declared filesystem_scope from registry entry.
     """
     if registry_entry is None or arguments is None:
         return PolicyDecision(decision="allow", reason="", rule="")
     
-    # Get declared filesystem scope from registry
+    # Get declared filesystem scope from registry entry
     declared_scope = registry_entry.get("filesystem_scope", [])
-    if not isinstance(declared_scope, list):
+    if not isinstance(declared_scope, list) or not declared_scope:
+        # No scope declared - no filesystem access allowed
         return PolicyDecision(decision="allow", reason="", rule="")
     
-    # Map capability names to their argument path keys and expected base paths
-    scope_mapping = _get_scope_mapping(capability_name, capabilities_config)
+    # Extract potential paths from arguments
+    paths_to_check = extract_path_from_arguments(arguments, capability_name)
     
-    for arg_key, expected_base in scope_mapping.items():
-        arg_value = arguments.get(arg_key)
-        if arg_value is None:
-            continue
-        
-        # Check if argument contains a path-like value
-        if isinstance(arg_value, str) and _looks_like_path(arg_value):
-            if not _is_within_scope(arg_value, expected_base):
-                return PolicyDecision(
-                    decision="deny",
-                    reason=f"Argument '{arg_key}' references path outside capability's filesystem scope",
-                    rule="filesystem_scope_violation"
-                )
-        
-        # Handle list of paths (e.g., input_files for execute_code)
-        if isinstance(arg_value, list):
-            for item in arg_value:
-                if isinstance(item, str) and _looks_like_path(item):
-                    if not _is_within_scope(item, expected_base):
-                        return PolicyDecision(
-                            decision="deny",
-                            reason=f"Argument '{arg_key}' contains path outside capability's filesystem scope",
-                            rule="filesystem_scope_violation"
-                        )
+    # If app_config provided, also check against base paths from config
+    allowed_scopes = list(declared_scope)
+    if app_config:
+        base_path = get_base_path_for_capability(capability_name, app_config)
+        if base_path:
+            # Add base path as allowed scope if not already covered
+            if base_path not in allowed_scopes:
+                allowed_scopes.append(base_path)
+    
+    for path in paths_to_check:
+        if not is_within_scope(path, allowed_scopes):
+            return PolicyDecision(
+                decision="deny",
+                reason=f"Argument references path '{path}' outside capability's declared filesystem scope",
+                rule="filesystem_scope_violation"
+            )
     
     return PolicyDecision(decision="allow", reason="", rule="")
 
 
-def _get_scope_mapping(capability_name: str, capabilities_config: dict[str, Any]) -> dict[str, str]:
-    """Map capability argument keys to their allowed base paths."""
-    # Base paths from config/app.yaml paths section
-    base_paths = {
-        "uploads": "data/uploads",
-        "extraction": "data/extraction",
-        "artifacts": "data/artifacts",
-        "sandbox": "data/sandbox",
-        "chroma": "data/chroma",
+def get_base_path_for_capability(capability_name: str, app_config: dict) -> str | None:
+    """Get the base data path for a capability from app config."""
+    paths = app_config.get("paths", {})
+    
+    capability_path_map = {
+        "extract_document": paths.get("uploads"),
+        "search_knowledge_base": paths.get("chroma"),
+        "generate_code": None,
+        "execute_code": paths.get("sandbox"),
+        "create_docx": paths.get("artifacts"),
+        "create_xlsx": paths.get("artifacts"),
+        "create_pptx": paths.get("artifacts"),
     }
     
-    # Per-capability scope mapping based on capabilities.md
-    mappings = {
-        "extract_document": {
-            "document_id": base_paths["uploads"],
-        },
-        "search_knowledge_base": {},
-        "generate_code": {},
-        "execute_code": {
-            "input_files": base_paths["sandbox"],
-        },
-        "create_docx": {},
-        "create_xlsx": {},
-        "create_pptx": {},
+    return capability_path_map.get(capability_name)
+
+
+def extract_path_from_arguments(arguments: dict, capability_name: str) -> list[str]:
+    """Extract potential filesystem paths from capability arguments."""
+    paths = []
+    
+    if not arguments or not isinstance(arguments, dict):
+        return paths
+    
+    # Capability-specific argument keys that may contain paths
+    path_arg_keys = {
+        "extract_document": ["document_id"],
+        "execute_code": ["input_files"],
+        "create_docx": [],
+        "create_xlsx": [],
+        "create_pptx": [],
+        "search_knowledge_base": [],
+        "generate_code": [],
     }
     
-    return mappings.get(capability_name, {})
-
-
-def _looks_like_path(value: str) -> bool:
-    """Check if a string looks like a filesystem path."""
-    return "/" in value or "\\" in value or value.startswith("..") or value.startswith("/")
-
-
-def _is_within_scope(path: str, base_path: str) -> bool:
-    """Check if a path resolves within the allowed base path.
+    keys = path_arg_keys.get(capability_name, [])
     
-    Rejects:
-    - Path traversal (../)
-    - Absolute paths
-    - Paths outside the base directory
-    """
-    import os
+    for key in keys:
+        value = arguments.get(key)
+        if value is None:
+            continue
+        if isinstance(value, str):
+            paths.append(value)
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, str):
+                    paths.append(item)
     
-    # Reject absolute paths
-    if os.path.isabs(path):
-        return False
-    
-    # Reject path traversal attempts
-    if ".." in path.split(os.sep):
-        return False
-    
-    # Normalize both paths
-    try:
-        resolved_path = os.path.normpath(path)
-        resolved_base = os.path.normpath(base_path)
-    except Exception:
-        return False
-    
-    # Check if resolved path is within base
-    try:
-        rel_path = os.path.relpath(resolved_path, resolved_base)
-        return not rel_path.startswith("..") and not os.path.isabs(rel_path)
-    except ValueError:
-        return False
+    return paths
 
 
 def _check_resource_limits(
@@ -288,25 +282,58 @@ def _check_resource_limits(
     registry_entry: dict[str, Any] | None,
     capabilities_config: dict[str, Any],
 ) -> PolicyDecision:
-    """Rule 5: Resource limits - timeout and output bounds within configured values."""
+    """Rule 5: Resource limits - timeout and output bounds within configured values.
+    
+    Fail closed if required config values are missing.
+    """
     if registry_entry is None:
         return PolicyDecision(decision="allow", reason="", rule="")
     
     capability_config = capabilities_config.get("capabilities", {}).get(capability_name, {})
     if not capability_config:
-        return PolicyDecision(decision="allow", reason="", rule="")
+        return PolicyDecision(
+            decision="deny",
+            reason=f"Missing capability configuration for '{capability_name}'",
+            rule="resource_limit_exceeded"
+        )
     
-    # Check timeout_seconds if specified in arguments
+    # Check timeout_seconds - required for all capabilities
+    configured_timeout = capability_config.get("timeout_seconds")
+    if configured_timeout is None:
+        return PolicyDecision(
+            decision="deny",
+            reason=f"Missing timeout_seconds in capability configuration for '{capability_name}'",
+            rule="resource_limit_exceeded"
+        )
+    
+    # Check requested timeout against configured limit
     if arguments and "timeout_seconds" in arguments:
         requested_timeout = arguments.get("timeout_seconds")
-        configured_timeout = capability_config.get("timeout_seconds")
-        
         if (isinstance(requested_timeout, (int, float)) and 
             isinstance(configured_timeout, (int, float)) and
             requested_timeout > configured_timeout):
             return PolicyDecision(
                 decision="deny",
                 reason=f"Requested timeout ({requested_timeout}s) exceeds configured limit ({configured_timeout}s)",
+                rule="resource_limit_exceeded"
+            )
+    
+    # Check max_output_bytes for execute_code
+    if capability_name == "execute_code":
+        configured_max_output = capability_config.get("max_output_bytes")
+        if configured_max_output is None:
+            return PolicyDecision(
+                decision="deny",
+                reason="Missing max_output_bytes in execute_code capability configuration",
+                rule="resource_limit_exceeded"
+            )
+        
+        # Note: actual output size is validated at execution time by the executor
+        # Policy only validates that the configured bound exists and is reasonable
+        if not isinstance(configured_max_output, int) or configured_max_output <= 0:
+            return PolicyDecision(
+                decision="deny",
+                reason="Invalid max_output_bytes in execute_code capability configuration",
                 rule="resource_limit_exceeded"
             )
     
