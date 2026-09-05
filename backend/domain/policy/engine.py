@@ -71,7 +71,10 @@ def _check_registered_and_enabled(
     registry_entry: dict[str, Any] | None,
     capabilities_config: dict[str, Any],
 ) -> PolicyDecision:
-    """Rule 1: Capability must exist in registry and be enabled in config."""
+    """Rule 1: Capability must exist in registry and be enabled in config.
+    
+    Fail closed: enabled must be explicitly true. Missing or false → deny.
+    """
     
     # Unknown capability
     if registry_entry is None:
@@ -81,9 +84,18 @@ def _check_registered_and_enabled(
             rule="unknown_capability"
         )
     
-    # Check config for enabled flag
+    # Check config for enabled flag - fail closed if missing
     capability_config = capabilities_config.get("capabilities", {}).get(capability_name, {})
-    if capability_config.get("enabled") is False:
+    enabled = capability_config.get("enabled")
+    
+    if enabled is None:
+        return PolicyDecision(
+            decision="deny",
+            reason=f"Missing enabled flag in capability configuration for '{capability_name}'",
+            rule="capability_not_enabled"
+        )
+    
+    if enabled is False:
         return PolicyDecision(
             decision="deny",
             reason=f"Capability '{capability_name}' is disabled in configuration",

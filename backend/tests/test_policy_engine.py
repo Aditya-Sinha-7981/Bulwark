@@ -141,6 +141,31 @@ def test_deny_capability_not_enabled(valid_registry_entry, valid_policy_config):
     assert "disabled" in decision.reason
 
 
+def test_deny_missing_enabled_flag(valid_registry_entry, valid_policy_config):
+    """Missing enabled flag in capability config should be denied (fail closed)."""
+    config = {
+        "capabilities": {
+            "execute_code": {
+                # enabled missing
+                "timeout_seconds": 30,
+                "cpu_limit": 1,
+                "memory_limit_mb": 512,
+                "max_output_bytes": 65536,
+            }
+        }
+    }
+    decision = evaluate(
+        capability_name="execute_code",
+        arguments={"code": "print('hello')", "language": "python", "input_files": []},
+        registry_entry=valid_registry_entry,
+        capabilities_config=config,
+        policy_config=valid_policy_config,
+    )
+    assert decision.decision == "deny"
+    assert decision.rule == "capability_not_enabled"
+    assert "Missing enabled flag" in decision.reason
+
+
 # ===== Rule 2: Permissions =====
 
 def test_allow_valid_permissions(valid_registry_entry, valid_capabilities_config, valid_policy_config):

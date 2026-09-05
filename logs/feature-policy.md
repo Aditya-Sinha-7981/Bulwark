@@ -118,3 +118,34 @@ All 29 tests pass including: fail-closed on missing config for all rules, `max_o
 - PR: (to be created)
 - Related branches / logs: feature/policy
 - Doc references: docs/security.md, docs/capabilities.md, docs/configuration.md, docs/agent.md, docs/decisions.md (ADR-02)
+
+---
+
+### Entry 3 — 2026-09-05 18:30 — Fixed Rule 1 fail-closed on missing enabled flag
+**What changed:**
+- `backend/domain/policy/engine.py:69-96` — Updated `_check_registered_and_enabled` to fail closed when `enabled` is missing from capability config:
+  - `enabled: true` → passes (allow)
+  - `enabled: false` → deny with `capability_not_enabled`
+  - `enabled` missing → deny with `capability_not_enabled` and clear reason "Missing enabled flag in capability configuration for '{capability_name}'"
+- `backend/tests/test_policy_engine.py:154-178` — Added `test_deny_missing_enabled_flag` test verifying fail-closed behavior for missing `enabled` config
+
+**Why:**
+- Task 6 spec Requirement 2 Rule 1: "Registered & enabled — the capability exists in the Registry and `config/capabilities.yaml` `<name>.enabled` is `true`. Unknown capability → `deny` (`unknown_capability`). Disabled → `deny` (`capability_not_enabled`)."
+- Task 6 spec Error Handling: "A config value missing for a rule → fail closed: `deny` with a clear `reason`, and surface the config gap (do not silently `allow`)."
+- The previous implementation only denied when `enabled` was explicitly `false`, silently allowing when missing — violating fail-closed principle.
+
+**How to verify:**
+```bash
+cd D:\HACKATHON\Bulwark
+python -m pytest backend/tests/test_policy_engine.py -q
+```
+All 30 tests pass including new `test_deny_missing_enabled_flag`.
+
+**Decisions made:**
+- Uses same rule identifier `capability_not_enabled` for both disabled and missing cases (consistent with "not enabled" semantics)
+- No new rule identifier invented — reuses existing stable identifier
+- No changes to capability arguments or fields — strictly config validation
+
+**Supersedes / references:**
+- Task 6 specification: `tasks/6-policy-engine.md` Requirement 2 Rule 1 and Error Handling
+- Authoritative docs: `docs/configuration.md` (capabilities.yaml schema with `enabled: true`)
