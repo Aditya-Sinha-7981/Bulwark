@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.health import router as health_router
+from api.jobs import router as jobs_router
 from config import settings
 from utils.paths import all_managed_dirs
 
@@ -34,6 +35,7 @@ app.add_middleware(
 )
 
 app.include_router(health_router, prefix="/api/v1")
+app.include_router(jobs_router, prefix="/api/v1")
 
 
 if __name__ == "__main__":
