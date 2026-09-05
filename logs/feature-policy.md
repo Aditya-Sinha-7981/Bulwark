@@ -149,3 +149,47 @@ All 30 tests pass including new `test_deny_missing_enabled_flag`.
 **Supersedes / references:**
 - Task 6 specification: `tasks/6-policy-engine.md` Requirement 2 Rule 1 and Error Handling
 - Authoritative docs: `docs/configuration.md` (capabilities.yaml schema with `enabled: true`)
+---
+
+### Entry 4 — 2026-09-06 01:00 — Resolved merge conflicts with main branch (Tasks 1-5)
+
+**What changed:**
+- `backend/models/schemas.py` — Restored main's full schema (DB row dataclasses + config models + `PolicyDecision = str` type alias). Removed branch's minimal Pydantic `PolicyDecision` model which was incompatible with main's `CapabilityExecutionRow` expecting string `policy_decision`/`policy_reason`.
+- `backend/utils/paths.py` — Restored main's `settings`-based path helpers using `pathlib.Path` and `backend.config`. Fixed import to use `from backend.config import REPO_ROOT, settings`.
+- `backend/config.py` — Restored from main (was empty). Fixed import to use `from backend.models.schemas import ...`.
+- `backend/domain/policy/paths.py` — NEW FILE: Policy-engine scoped path authorization helpers built on top of `backend.utils.paths` canonical roots. Contains `resolve_within_scope`, `is_within_scope`, `get_allowed_scopes_for_capability`, `extract_paths_from_arguments`.
+- `backend/domain/policy/engine.py` — Updated to:
+  - Import from `backend.domain.policy.paths` instead of `backend.utils.paths`
+  - Return `dict` with `policy_decision`, `policy_reason`, `rule` matching `CapabilityExecutionRow` fields (not Pydantic model)
+  - Use `_make_decision()` helper for consistent decision objects
+  - Removed `app_config` parameter (now uses canonical paths from `backend.utils.paths` via policy paths module)
+  - Filesystem scope validates against both registry entry's declared `filesystem_scope` AND canonical capability scopes from config
+- `backend/tests/test_policy_engine.py` — Updated to use dict-style access (`decision["policy_decision"]`) and match new return format
+- `config/*.yaml` — Restored from main (were empty on branch)
+
+**Why:**
+- Main branch completed Tasks 1-5 (config loading, data model, audit, job system) which provide the infrastructure the Policy Engine depends on
+- The Policy branch (Task 6) was developed in parallel and re-implemented core types (`schemas.py`, `paths.py`) that already exist on main with different designs
+- Per merge guide (`tasks/temp-docs/merge conflict Resolution.md`): Keep main's implementation as canonical; adapt branch to use it
+- The Pydantic `PolicyDecision` model on branch was incompatible with main's `CapabilityExecutionRow` (expects string fields), repositories, and audit events
+
+**How to verify:**
+```bash
+cd /Users/adityasinha/Files/Codes/Hackathons/Bulwark
+python3 -m pytest backend/tests/test_policy_engine.py -v
+```
+All 30 tests pass including: allow/deny per rule, network invariant unconditional denial, filesystem scope traversal/absolute path rejection, resource limit enforcement, determinism (100 identical evaluations), no forbidden imports.
+
+**Open issues / known gaps:**
+- None for Task 6 scope — all rules implemented and tested
+
+**Decisions made:**
+- Policy engine returns dict matching `CapabilityExecutionRow` fields: `{policy_decision, policy_reason, rule}`
+- Policy-specific path helpers live in `backend/domain/policy/paths.py`, built on canonical roots from `backend.utils.paths`
+- No `app_config` parameter needed in `evaluate()` — uses canonical paths from config
+- Filesystem scope defense-in-depth: validates against both registry entry's declared scope AND canonical capability scopes
+
+**Supersedes / references:**
+- Merge conflict resolution guide: `tasks/temp-docs/merge conflict Resolution.md`
+- Task 6 specification: `tasks/6-policy-engine.md`
+- Main branch Tasks 1-5: config, data model, audit, job system
