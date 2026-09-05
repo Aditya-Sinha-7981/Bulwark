@@ -88,11 +88,21 @@ Implement the SQLite database schema and repository layer for all entities defin
 **Decisions made:** Schema is frozen — any future change requires updating `docs/data-model.md` first (AGENTS.md §6 rule 13).
 **Supersedes / references:** Entry 1.
 
+### Entry 7 — 2026-09-05 14:30 — Merge conflict resolved with Task 2 (Configuration)
+**What changed:** Resolved merge conflict in `backend/models/schemas.py` between Task 3 (database row dataclasses) and Task 2 (Pydantic config models). Merged both sets of classes into single file with clear section separation. Updated `backend/repositories/db.py` to use new `settings.app.paths.db` from Task 2's `settings` object instead of legacy `DATA_ROOT`.
+**Why:** Task 2's configuration loading was developed in parallel and merged into the branch; both sets of models belong in `schemas.py` per project structure.
+**How to verify:** All 68 repository tests pass; schema initialization works with new settings path.
+**Decisions made:** 
+- `from __future__ import annotations` moved to top of file (required by Python)
+- Section 1: Database row dataclasses (Task 3) — 11 classes + enum constants
+- Section 2: Configuration Pydantic models (Task 2) — 4 file models + supporting classes
+- DB path now uses `settings.app.paths.db` from validated config
+**Supersedes / references:** Entries 2, 4, 6. Resolves open question #2 (settings integration complete).
+
 ## Open questions for the user
 
 1. **Row dataclasses**: Should repositories return typed dataclass instances instead of dicts? Current implementation returns dicts; `schemas.py` is available for consumers to cast.
-2. **Settings integration**: Currently uses fallback `./data/db/app.db` via `backend.config.DATA_ROOT`. Should wait for Task 2's `settings.app.paths.db` to be ready, then switch.
-3. **Test fixture pattern**: Current monkey-patching works but is verbose. A shared `conftest.py` fixture could simplify future tests.
+2. **Test fixture pattern**: Current monkey-patching works but is verbose. A shared `conftest.py` fixture could simplify future tests.
 
 ## Links
 

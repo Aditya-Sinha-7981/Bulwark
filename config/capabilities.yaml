@@ -1,0 +1,29 @@
+capabilities:
+  extract_document:
+    enabled: true
+    timeout_seconds: 120
+    max_file_size_mb: 10
+
+  search_knowledge_base:
+    enabled: true
+    timeout_seconds: 10
+    default_top_k: 5
+
+  generate_code:
+    enabled: true
+    timeout_seconds: 30
+
+  execute_code:
+    enabled: true
+    timeout_seconds: 30
+    cpu_limit: 1
+    memory_limit_mb: 512
+    max_output_bytes: 65536
+
+  create_docx:
+    enabled: true
+    timeout_seconds: 15
+
+  create_xlsx:
+    enabled: true
+    timeout_seconds: 15

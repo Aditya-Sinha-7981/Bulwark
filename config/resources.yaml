@@ -1,0 +1,23 @@
+resources:
+  reasoning:
+    model: qwen3.5:9b
+    runtime: ollama
+    context_window: 128000
+    keep_alive: "5m"
+
+  code_generation:
+    model: qwen2.5-coder:7b
+    runtime: ollama
+    context_window: 32768
+    keep_alive: "5m"
+
+  vision:
+    model: qwen3.5:9b
+    runtime: ollama
+    context_window: 256000
+    keep_alive: "5m"
+
+  embedding:
+    model: qwen3-embedding:0.6b
+    runtime: ollama
+    keep_alive: "-1"

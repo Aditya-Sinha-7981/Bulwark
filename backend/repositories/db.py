@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Generator, Optional
 
-from backend.config import DATA_ROOT
+from backend.config import settings
 
 
 class DatabaseError(Exception):
@@ -29,8 +29,8 @@ class ConstraintError(DatabaseError):
 
 
 def get_db_path() -> Path:
-    """Get the database path from settings or use fallback."""
-    return DATA_ROOT / "db" / "app.db"
+    """Get the database path from settings."""
+    return Path(settings.app.paths.db)
 
 
 def get_connection(db_path: Optional[Path] = None) -> sqlite3.Connection:
