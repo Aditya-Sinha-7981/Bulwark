@@ -19,7 +19,7 @@ from docx import Document
 from docx.shared import Pt
 
 from backend.repositories.artifacts import create_artifact
-from backend.utils.paths import ARTIFACTS_ROOT, artifacts_path
+from backend.utils import paths as paths_module
 
 _MAX_FILENAME_STEM_LEN = 80
 
@@ -111,9 +111,9 @@ def render_docx(artifact_id: str, job_id: str, payload: dict[str, Any]) -> dict[
             orphaned file is removed so a broken Artifact-less file is never
             left in data/artifacts/.
     """
-    final_path = artifacts_path(artifact_id, ".docx")
+    final_path = paths_module.artifacts_path(artifact_id, ".docx")
 
-    tmp_fd, tmp_path_str = tempfile.mkstemp(suffix=".docx.tmp", dir=ARTIFACTS_ROOT)
+    tmp_fd, tmp_path_str = tempfile.mkstemp(suffix=".docx.tmp", dir=paths_module.ARTIFACTS_ROOT)
     os.close(tmp_fd)
     tmp_path = Path(tmp_path_str)
 
