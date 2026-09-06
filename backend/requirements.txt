@@ -5,6 +5,7 @@ pydantic-settings
 pyyaml
 httpx
 python-multipart
+python-docx
 
 # dev / test
 pytest
