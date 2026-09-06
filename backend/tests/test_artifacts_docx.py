@@ -69,16 +69,10 @@ def temp_artifacts_root(tmp_path, monkeypatch):
     fake_root = tmp_path / "artifacts"
     fake_root.mkdir()
 
-    # Patch the paths module
+    # Patch the paths module - both ARTIFACTS_ROOT and artifacts_path
     import backend.utils.paths as paths_module
     monkeypatch.setattr(paths_module, "ARTIFACTS_ROOT", fake_root)
-
-    def fake_artifacts_path(artifact_id: str, ext: str) -> Path:
-        return fake_root / f"{artifact_id}{ext}"
-
-    monkeypatch.setattr(
-        "backend.domain.artifacts.docx_renderer.artifacts_path", fake_artifacts_path
-    )
+    monkeypatch.setattr(paths_module, "artifacts_path", lambda artifact_id, ext: fake_root / f"{artifact_id}{ext}")
     return fake_root
 
 
