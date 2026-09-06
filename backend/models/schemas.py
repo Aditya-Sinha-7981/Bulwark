@@ -5,13 +5,14 @@ This module contains:
 - SECTION 2: Configuration Models (Task 2)
 - SECTION 3: Capability Contract Schemas (Task 7)
 - SECTION 4: Registry Entry & Errors (Task 7)
+- SECTION 5: Orchestrator Models (Task 10)
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Protocol, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.types import UUID
@@ -556,3 +557,98 @@ class CapabilityValidationError(Exception):
         self.is_input = is_input
         direction = "input" if is_input else "output"
         super().__init__(f"Capability '{capability_name}' {direction} validation failed: {'; '.join(errors)}")
+
+
+# =============================================================================
+# SECTION 5: Orchestrator Models (Task 10)
+# Proposal shapes, parse result, context, model client protocol, step outcome.
+# =============================================================================
+
+
+class InvokeCapabilityProposal(BaseModel):
+    """Proposal to invoke a capability by name with validated arguments."""
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["invoke_capability"]
+    capability: str
+    arguments: Dict[str, Any]
+
+
+class RespondProposal(BaseModel):
+    """Proposal to respond directly with content."""
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["respond"]
+    content: str
+
+
+Proposal = Union[InvokeCapabilityProposal, RespondProposal]
+"""The two valid Orchestrator proposal shapes per docs/agent.md."""
+
+
+class ParseResult(BaseModel):
+    """Result of parsing raw model output into a proposal or malformed classification."""
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["proposal", "malformed"]
+    proposal: Optional[Proposal] = None
+    error: Optional[str] = None
+
+
+class ToolResult(BaseModel):
+    """A tool result appended to the Orchestrator's context per docs/agent.md."""
+    model_config = ConfigDict(extra="forbid")
+    role: Literal["tool_result"]
+    capability: str
+    result: Dict[str, Any]
+    status: Literal["succeeded", "failed", "denied"]
+
+
+class OrchestratorContext(BaseModel):
+    """Context passed to agent.step() each turn."""
+    model_config = ConfigDict(extra="forbid")
+    job_id: str
+    conversation_id: str
+    system_prompt: str
+    conversation_history: List[Dict[str, Any]]
+    tool_results: List[ToolResult]
+    malformed_error: Optional[str] = None
+
+
+class GenerationResult(BaseModel):
+    """Result from a model generation call. Field-for-field matches Task 8's real interface."""
+    model_config = ConfigDict(extra="forbid")
+    text: str
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    duration_ms: Optional[int] = None
+    model_identifier: Optional[str] = None
+    load_triggered: bool = False
+
+
+class ModelClient(Protocol):
+    """Protocol for model generation — dependency injection boundary.
+
+    This matches Task 8's real Model Runtime interface field-for-field.
+    Tests use a fake; production uses the real Ollama wrapper.
+    agent.py calls model_client.generate("reasoning", prompt) per docs/agent.md.
+    """
+
+    async def generate(
+        self,
+        resource_type: str,
+        prompt: str,
+        *,
+        images: list[bytes] | None = None,
+        options: dict | None = None,
+    ) -> GenerationResult: ...
+
+
+class StepOutcome(BaseModel):
+    """Classification of a parsed step — pure function output for the Job Manager.
+
+    classify_step() is a pure function. The Job Manager (Task 15) owns the
+    step counter and malformed_retry_used flag; this class tells it what
+    to do with them. agent.py does NOT own step counter state.
+    """
+    model_config = ConfigDict(extra="forbid")
+    counts_against_limit: bool
+    terminal: bool
+    terminal_reason: Optional[str] = None
