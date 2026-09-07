@@ -20,4 +20,4 @@ resources:
   embedding:
     model: qwen3-embedding:0.6b
     runtime: ollama
-    keep_alive: "-1"
+    keep_alive: -1

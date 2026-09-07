@@ -19,7 +19,7 @@ def test_all_four_files_load_and_validate():
     assert settings.resources.for_type("code_generation").model == "qwen2.5-coder:7b"
     assert settings.resources.for_type("vision").model == "qwen3.5:9b"
     assert settings.resources.for_type("embedding").model == "qwen3-embedding:0.6b"
-    assert settings.resources.for_type("embedding").keep_alive == "-1"
+    assert settings.resources.for_type("embedding").keep_alive == -1
 
     assert settings.capabilities.extract_document.max_file_size_mb == 10
     assert settings.capabilities.search_knowledge_base.default_top_k == 5
