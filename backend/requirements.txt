@@ -7,6 +7,8 @@ httpx
 python-multipart
 python-docx
 
+openpyxl
+
 # dev / test
 pytest
 pytest-asyncio 
