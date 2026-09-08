@@ -41,6 +41,27 @@ Created `logs/artifacts-xlsx.md` development log.
 
 **Supersedes / references:** Replaces empty `xlsx_renderer.py` and stub `create_xlsx.py` in repo. Related: Task 14.a (`logs/artifacts-docx.md`), task spec `14b-xlsx-renderer.md`
 
+### Entry 2 — 2026-09-08 — Implement create_xlsx capability executor
+**What changed:** `backend/domain/capabilities/create_xlsx.py` — replaced stub (`NotImplementedError`) with full capability executor (~150 lines):
+- `CapabilityValidationError` exception class
+- `validate_input()` — strict schema validation per `docs/capabilities.md#create_xlsx`: title (non-empty string), sheets (non-empty list), each sheet with name (unique, non-empty string), headers (non-empty list of strings), rows (list of lists). Rejects extra fields at all levels (AGENTS.md §6 rule 11). Duplicate sheet names rejected as invalid per task spec §7.
+- `validate_output()` — validates `{artifact_id, filename}` output shape, rejects extra fields
+- `execute_create_xlsx(job_id, arguments)` — validate → render → validate → emit pattern matching `create_docx.py`: generates artifact_id, calls `xlsx_renderer.render_xlsx()`, validates output, emits `artifact_created` audit event with `{artifact_id, type: "xlsx", filename}`
+
+**Why:** The test file expected these exports (`CapabilityValidationError`, `validate_input`, `validate_output`, `execute_create_xlsx`) but the stub only raised `NotImplementedError`. Implementation mirrors `create_docx.py` exactly.
+
+**How to verify:** `cd C:\Users\Lenovo\OneDrive\Desktop\SIH\Bulwark && python -m pytest backend/tests/test_artifacts_xlsx.py -v` — all 25 tests pass.
+
+**Open issues / known gaps:** None.
+
+**Decisions made:**
+- Followed `create_docx.py` pattern exactly for consistency
+- Duplicate sheet name check added at validation layer (not rendering layer) per task spec §7
+- No Pydantic models used for validation — manual validation mirrors `create_docx.py` approach
+- Audit event emission uses `emit()` from `backend.domain.audit.events` with component `"artifact_executor"`
+
+**Supersedes / references:** Entry 1 (pre-built files). Related: Task 14.a (`logs/artifacts-docx.md`), task spec `14b-xlsx-renderer.md`
+
 ## Open questions for the user
 
 None — all error handling behaviors resolved in task spec §7/§11 finalisation decision.
