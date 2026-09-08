@@ -8,6 +8,8 @@ python-multipart
 python-docx
 psutil
 
+openpyxl
+
 # dev / test
 pytest
-pytest-asyncio
+pytest-asyncio 
