@@ -358,7 +358,7 @@ class TestStaticCheck:
 
     def test_only_runtime_imports_httpx_for_model(self):
         """runtime.py should be the only backend module importing httpx for model endpoints."""
-        backend_root = Path(r"C:\z\Bulwark\backend")
+        backend_root = Path(__file__).resolve().parent.parent
         pattern = re.compile(r"11434|/api/generate|/api/embed")
         violations = []
 

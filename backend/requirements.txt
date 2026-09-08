@@ -6,6 +6,7 @@ pyyaml
 httpx
 python-multipart
 python-docx
+psutil
 
 # dev / test
 pytest
