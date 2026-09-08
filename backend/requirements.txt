@@ -9,4 +9,4 @@ python-docx
 
 # dev / test
 pytest
-pytest-asyncio
+pytest-asyncio 
