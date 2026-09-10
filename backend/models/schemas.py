@@ -211,7 +211,7 @@ class ResourceEntry(StrictModel):
     model: str
     runtime: Literal["ollama"]
     context_window: int | None = None
-    keep_alive: str
+    keep_alive: str | int
 
 
 class ResourcesConfig(StrictModel):
@@ -618,6 +618,16 @@ class GenerationResult(BaseModel):
     text: str
     prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None
+    duration_ms: Optional[int] = None
+    model_identifier: Optional[str] = None
+    load_triggered: bool = False
+
+
+class EmbeddingResult(BaseModel):
+    """Result from a model embedding call."""
+    model_config = ConfigDict(extra="forbid")
+    embeddings: list[list[float]]
+    prompt_tokens: Optional[int] = None
     duration_ms: Optional[int] = None
     model_identifier: Optional[str] = None
     load_triggered: bool = False

@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.artifacts import router as artifacts_router
+from api.documents import router as documents_router
 from api.health import router as health_router
 from api.jobs import router as jobs_router
 from config import settings
@@ -38,6 +39,7 @@ app.add_middleware(
 app.include_router(health_router, prefix="/api/v1")
 app.include_router(jobs_router, prefix="/api/v1")
 app.include_router(artifacts_router, prefix="/api/v1")
+app.include_router(documents_router, prefix="/api/v1")
 
 
 if __name__ == "__main__":

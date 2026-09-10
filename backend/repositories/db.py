@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Generator, Optional
 
-from backend.config import settings
+from backend.config import REPO_ROOT, settings
 
 
 class DatabaseError(Exception):
@@ -29,8 +29,8 @@ class ConstraintError(DatabaseError):
 
 
 def get_db_path() -> Path:
-    """Get the database path from settings."""
-    return Path(settings.app.paths.db)
+    """Get the database path from settings, resolved relative to repo root."""
+    return (REPO_ROOT / settings.app.paths.db).resolve()
 
 
 def get_connection(db_path: Optional[Path] = None) -> sqlite3.Connection:
