@@ -16,7 +16,6 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
-import httpx
 import psutil
 
 from backend.config import settings
@@ -160,60 +159,54 @@ async def _ensure_resource_state_row(resource_type: str, model_identifier: str) 
     return state
 
 
-async def _check_idle_unload(resource_type: str, model_identifier: str, runtime: OllamaRuntime) -> bool:
+async def _check_idle_unload(
+    resource_type: str,
+    model_identifier: str,
+    runtime: OllamaRuntime,
+) -> bool:
     """
     Lazy idle-unload reconciliation.
-    Checks if model is still loaded in Ollama via /api/ps.
-    Returns True if model is still loaded, False if it was idle-unloaded.
+
+    Model Runtime owns communication with the model server. Lifecycle Manager
+    only consumes the runtime's model-state result.
+
+    Returns True if the model is still loaded, False if it was unloaded.
     """
     try:
-        client = httpx.AsyncClient(
-            base_url=settings.app.ollama.base_url,
-            timeout=httpx.Timeout(connect=5, read=10, write=10, pool=10),
-        )
-        try:
-            resp = await client.get("/api/ps")
-            resp.raise_for_status()
-            data = resp.json()
-            # Check if our model is in the loaded models list
-            for model_info in data.get("models", []):
-                if model_info.get("name") == model_identifier:
-                    return True
-            # Model not found in loaded models — it was idle-unloaded
-            return False
-        finally:
-            await client.aclose()
-    except Exception:
-        # If we can't check, assume it's still loaded (conservative)
+        return await runtime.is_model_loaded(model_identifier)
+    except (ModelRuntimeError, ModelRuntimeUnavailableError):
+        # Conservative behavior: if runtime state cannot be determined,
+        # assume the model is still loaded.
         return True
 
 
-async def _unload_model(resource_type: str, model_identifier: str, reason: str, job_id: Optional[str] = None) -> None:
+async def _unload_model(
+    resource_type: str,
+    model_identifier: str,
+    reason: str,
+    job_id: Optional[str] = None,
+) -> None:
     """
-    Unload a model by sending keep_alive=0 to Ollama.
-    Updates ResourceState and emits resource_unloaded audit event.
+    Unload a model through Model Runtime.
+
+    Lifecycle Manager owns the lifecycle decision and ResourceState update;
+    Model Runtime owns the actual model-server operation.
     """
+    runtime = _get_runtime()
+
     try:
-        client = httpx.AsyncClient(
-            base_url=settings.app.ollama.base_url,
-            timeout=httpx.Timeout(connect=5, read=10, write=10, pool=10),
-        )
-        try:
-            # Send unload request (keep_alive=0 means immediate unload)
-            await client.post("/api/generate", json={
-                "model": model_identifier,
-                "prompt": "",
-                "stream": False,
-                "keep_alive": 0,
-            })
-        finally:
-            await client.aclose()
-    except Exception:
-        # Even if unload request fails, we update state and emit event
-        # The model may already be unloaded by Ollama
+        await runtime.unload(model_identifier)
+    except (ModelRuntimeError, ModelRuntimeUnavailableError):
+        # The model may already have been unloaded. ResourceState is still
+        # reconciled locally so lifecycle management can continue.
         pass
 
-    set_resource_status(resource_type, "unloaded", loaded_at=None, last_used_at=None)
+    set_resource_status(
+        resource_type,
+        "unloaded",
+        loaded_at=None,
+        last_used_at=None,
+    )
 
     await emit(
         "resource_unloaded",
