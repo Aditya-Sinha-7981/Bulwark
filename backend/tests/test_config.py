@@ -4,9 +4,9 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-import config as config_module
-from config import CONFIG_DIR, Settings, load_settings, settings
-from utils import paths as paths_module
+import backend.config as config_module
+from backend.config import CONFIG_DIR, Settings, load_settings, settings
+from backend.utils import paths as paths_module
 
 
 # ---------------------------------------------------------------------------

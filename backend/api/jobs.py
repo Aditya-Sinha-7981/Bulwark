@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from backend.domain.audit.events import get_events_for_job, subscribe, unsubscribe
 from backend.domain.job_manager.manager import create_job, ensure_conversation_exists, run_job
+from backend.repositories import artifacts as artifacts_repo
 from backend.repositories import jobs as jobs_repo
 
 
@@ -144,6 +145,10 @@ async def get_job(job_id: str) -> dict:
             "message": job["error_message"],
         }
 
+    artifact_ids = [
+        a["artifact_id"] for a in artifacts_repo.list_artifacts_by_job(job_id)
+    ]
+
     return {
         "job_id": job["job_id"],
         "status": job["status"],
@@ -151,7 +156,7 @@ async def get_job(job_id: str) -> dict:
         "created_at": job["created_at"],
         "updated_at": job["updated_at"],
         "final_message": job["final_message"],
-        "artifact_ids": [],
+        "artifact_ids": artifact_ids,
         "error": error,
     }
 
