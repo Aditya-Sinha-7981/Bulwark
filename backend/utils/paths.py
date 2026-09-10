@@ -29,12 +29,36 @@ CHROMA_ROOT = _resolve_root(settings.app.paths.chroma)
 
 
 def _reject_unsafe(*components: str) -> None:
+    """Reject absolute paths and parent traversal on all supported OSes.
+
+    Bulwark supports Windows and macOS, so validate both Windows and POSIX
+    path syntax regardless of the host operating system.
+    """
     for component in components:
-        purepath = pathlib.PurePath(component)
-        if purepath.is_absolute():
-            raise ValueError(f"path component must not be absolute: {component!r}")
-        if ".." in purepath.parts:
-            raise ValueError(f"path component must not contain '..': {component!r}")
+        if not isinstance(component, str):
+            raise TypeError("path component must be a string")
+
+        posix_path = pathlib.PurePosixPath(component)
+        windows_path = pathlib.PureWindowsPath(component)
+
+        # Reject POSIX absolute paths: /foo/bar
+        # and Windows absolute paths: C:\foo\bar, \\server\share.
+        if posix_path.is_absolute() or windows_path.is_absolute():
+            raise ValueError(
+                f"path component must not be absolute: {component!r}"
+            )
+
+        # Reject Windows drive-qualified paths, including C:foo.
+        if windows_path.drive:
+            raise ValueError(
+                f"path component must not contain a Windows drive: {component!r}"
+            )
+
+        # Reject .. using either path separator convention.
+        if ".." in posix_path.parts or ".." in windows_path.parts:
+            raise ValueError(
+                f"path component must not contain '..': {component!r}"
+            )
 
 
 def uploads_path(document_id: str, ext: str) -> pathlib.Path:

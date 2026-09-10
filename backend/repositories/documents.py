@@ -4,6 +4,7 @@ Repository for Document entities.
 Handles CRUD operations for uploaded input documents.
 """
 
+import sqlite3
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -25,6 +26,7 @@ def create_document(
     content_type: str,
     size_bytes: int,
     storage_path: str,
+    document_id: str | None = None,
 ) -> str:
     """
     Create a new document record.
@@ -34,11 +36,13 @@ def create_document(
         content_type: MIME content type.
         size_bytes: File size in bytes.
         storage_path: Relative path under data/uploads/.
+        document_id: Optional document ID. If not provided, a new one is generated.
 
     Returns:
-        The new document_id.
+        The document_id.
     """
-    document_id = new_id()
+    if document_id is None:
+        document_id = new_id()
     now = _now_iso()
 
     conn = get_connection()
@@ -107,6 +111,3 @@ def list_documents(limit: int = 100, offset: int = 0) -> List[dict]:
         return [row_to_dict(row) for row in cursor.fetchall()]
     finally:
         conn.close()
-
-
-import sqlite3

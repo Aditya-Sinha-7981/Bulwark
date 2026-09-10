@@ -9,7 +9,9 @@ python-docx
 psutil
 
 openpyxl
+paddleocr
+pypdfium2
 
 # dev / test
 pytest
-pytest-asyncio 
+pytest-asyncio
