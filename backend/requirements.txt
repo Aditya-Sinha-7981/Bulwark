@@ -11,6 +11,7 @@ psutil
 openpyxl
 paddleocr
 pypdfium2
+chromadb
 
 # dev / test
 pytest

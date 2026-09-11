@@ -81,14 +81,23 @@ def _validate_payload(event_type: str, payload: Dict[str, Any]) -> None:
             )
 
 
+_JOB_INDEPENDENT_EVENT_TYPES = frozenset({"network_check", "error"})
+
+
 def _validate_job_id(event_type: str, job_id: Optional[str]) -> None:
-    """Validate job_id is None only for network_check events."""
+    """Validate job_id.
+
+    `network_check` must always have job_id=None (it is continuous, independent
+    of any Job). `error` may have job_id=None too — a Job-independent background
+    process (e.g. knowledge-base ingestion, `rag.md`) has no Job to attach to,
+    the same pattern `network_check` already uses (`docs/audit.md`). Every other
+    event type is Job-scoped and requires a job_id.
+    """
     if event_type == "network_check":
         if job_id is not None:
             raise ValueError("network_check events must have job_id=None")
-    else:
-        if job_id is None:
-            raise ValueError(f"Event type '{event_type}' requires a job_id")
+    elif job_id is None and event_type not in _JOB_INDEPENDENT_EVENT_TYPES:
+        raise ValueError(f"Event type '{event_type}' requires a job_id")
 
 
 async def subscribe(job_id: str) -> asyncio.Queue:
@@ -147,7 +156,9 @@ async def emit(
         event_type: Event type from docs/audit.md enum.
         component: Component that emitted the event (e.g., "api", "orchestrator").
         payload: Event payload dict (will be JSON serialized).
-        job_id: Job UUID, or None for job-independent events (only network_check).
+        job_id: Job UUID, or None for job-independent events (`network_check`,
+            and `error` fired by a job-independent background process such as
+            KB ingestion — `docs/audit.md`).
 
     Returns:
         The event dict that was persisted and pushed.
