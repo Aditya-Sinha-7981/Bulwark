@@ -129,17 +129,15 @@ export function PromptComposer({ value, onChange, onSubmit, onAttach, attachedFi
           to run
         </span>
 
-        {hasContent && (
-          <button
-            type="button"
-            className="btn-primary ml-auto h-9 w-9 !px-0 rounded-full transition-all duration-150 hover:bg-accent hover:shadow-[0_0_12px_theme(colors.accent.DEFAULT/40)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center"
-            onClick={onSubmit}
-            disabled={!hasContent}
-            aria-label="Run prompt"
-          >
-            <Icon name="send" size={18} className="text-white" />
-          </button>
-        )}
+        <button
+          type="button"
+          className="btn-primary ml-auto h-9 w-9 !px-0 rounded-full transition-all duration-150 hover:bg-accent hover:shadow-[0_0_12px_theme(colors.accent.DEFAULT/40)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center"
+          onClick={onSubmit}
+          disabled={!hasContent}
+          aria-label="Run prompt"
+        >
+          <Icon name="send" size={18} className="text-white" />
+        </button>
       </div>
     </div>
   )
