@@ -183,7 +183,11 @@ def test_policy_deny_blocks_execution(isolated_db, artifacts_tmp):
 
 
 def test_executor_error_is_failed_tool_result_not_crash(isolated_db):
-    # search_knowledge_base executor is still a stub → raises NotImplementedError.
+    # search_knowledge_base is implemented (Task 12.b) but the knowledge_base
+    # Chroma collection is empty/uninitialised in this isolated test env, which
+    # is itself a defined executor failure (RetrievalError, not a stub
+    # NotImplementedError) — still exercises "executor raises -> failed
+    # tool-result, Job does not crash".
     _install(
         [
             json.dumps({"action": "invoke_capability", "capability": "search_knowledge_base", "arguments": {"query": "maintenance window", "top_k": 3}}),
@@ -202,7 +206,7 @@ def test_executor_error_is_failed_tool_result_not_crash(isolated_db):
 
     cap_steps = [s for s in jobs_repo.list_job_steps(job_id) if s["kind"] == "capability_invocation"]
     assert len(cap_steps) == 1 and cap_steps[0]["status"] == "failed"
-    assert "NotImplementedError" in (cap_steps[0]["error_message"] or "")
+    assert "RetrievalError" in (cap_steps[0]["error_message"] or "")
 
 
 def test_malformed_then_corrective_turn_is_free(isolated_db):

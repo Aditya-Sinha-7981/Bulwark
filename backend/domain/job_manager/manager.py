@@ -247,17 +247,20 @@ async def _dispatch_capability(
 
     Called by `run_job` only after `evaluate(...)` returned `allow`. Returns
     the executor's raw result as a plain dict. Raises whatever the executor
-    raises (NotImplementedError for not-yet-built Tasks 11/12/13, validation
-    or render errors, etc.) — `run_job` converts the failure into a
-    `status: "failed"` tool-result so the Job never crashes.
+    raises (validation or render errors, a still-unimplemented capability,
+    etc.) — `run_job` converts the failure into a `status: "failed"`
+    tool-result so the Job never crashes.
 
-    NOTE (coordination — Tasks 11/12/13): `create_docx` / `create_xlsx` use the
-    signature `execute(job_id, arguments) -> dict`. The other four executors
-    are currently stubs taking a validated pydantic input model. They should
-    converge on `async def execute_x(job_id, arguments, capability_execution_id)
-    -> dict` so this adapter stays trivial; until then it bridges both shapes.
+    NOTE (coordination — Task 11): `create_docx` / `create_xlsx` (Task 14),
+    `generate_code` / `execute_code` (Task 13), and `search_knowledge_base`
+    (Task 12.b) have all converged on `async def execute_x(job_id, arguments)
+    -> dict` — arguments is the raw, unvalidated dict from the Orchestrator's
+    proposal; each executor validates its own input/output against
+    `docs/capabilities.md` internally. `extract_document` (Task 11) has not
+    converged yet and still takes a single pre-validated pydantic model, so
+    this adapter validates on its behalf until it does.
     `capability_execution_id` is threaded here for `model_executions`
-    correlation once those executors make real model calls.
+    correlation once these executors make real model calls.
     """
     if capability_name == "create_docx":
         from backend.domain.capabilities.create_docx import execute_create_docx
@@ -280,20 +283,17 @@ async def _dispatch_capability(
             execute_search_knowledge_base,
         )
 
-        model = registry.validate_input(capability_name, arguments)
-        return _as_dict(await execute_search_knowledge_base(model))
+        return await execute_search_knowledge_base(job_id, arguments)
 
     if capability_name == "generate_code":
         from backend.domain.capabilities.generate_code import execute_generate_code
 
-        model = registry.validate_input(capability_name, arguments)
-        return _as_dict(await execute_generate_code(model))
+        return await execute_generate_code(job_id, arguments)
 
     if capability_name == "execute_code":
         from backend.domain.capabilities.execute_code import execute_execute_code
 
-        model = registry.validate_input(capability_name, arguments)
-        return _as_dict(await execute_execute_code(model))
+        return await execute_execute_code(job_id, arguments)
 
     raise ValueError(f"no dispatch entry for capability {capability_name!r}")
 
