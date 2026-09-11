@@ -1,0 +1,33 @@
+Standard Operating Procedure: Rotating Equipment Preventive Maintenance
+
+Document ID: SOP-EM-027
+Category: Maintenance
+Effective Date: 2026-01-01
+
+1. Purpose
+Defines preventive maintenance intervals and inspection criteria for
+rotating equipment (pumps, motors, compressors) in the production area.
+
+2. Maintenance Intervals
+- Lubrication check: weekly.
+- Vibration analysis: monthly, using handheld vibration meter.
+- Bearing temperature check: weekly, via infrared thermometer; flag any
+  reading above 80 degrees Celsius for immediate investigation.
+- Full teardown inspection: every 18 months or 10,000 operating hours,
+  whichever comes first.
+
+3. Acceptance Criteria
+- Vibration readings must remain below 4.5 mm/s RMS (ISO 10816 Zone B).
+- No audible bearing noise, grinding, or irregular pulsing.
+- Lubricant level within the sight-glass operating band; no visible
+  contamination or discoloration.
+
+4. Out-of-Tolerance Response
+Any reading outside acceptance criteria triggers a Work Order within
+4 hours and equipment is de-rated or shut down if vibration exceeds
+7.1 mm/s RMS (ISO 10816 Zone D) pending investigation.
+
+5. Responsible Roles
+- Maintenance Technician: weekly checks, work order initiation.
+- Reliability Engineer: monthly vibration analysis review.
+- Plant Manager: approval for equipment shutdown/de-rating decisions.

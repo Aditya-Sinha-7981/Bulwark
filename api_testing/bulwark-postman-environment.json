@@ -1,0 +1,43 @@
+{
+  "id": "6cc283b6-32a0-41bd-b59e-31b5071cf866",
+  "name": "Bulwark Local",
+  "values": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000/api/v1",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "conversationId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "jobId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "documentId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "artifactId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "kbDocumentId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    }
+  ],
+  "_postman_variable_scope": "environment"
+}
