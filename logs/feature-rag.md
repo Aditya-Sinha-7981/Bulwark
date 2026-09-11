@@ -1,8 +1,8 @@
 # logs/feature-rag.md
 
-> Feature / workstream: `rag`  (branches: `feature/rag-ingestion`, …)
+> Feature / workstream: `rag`  (branches: `feature/rag-ingestion`, `feature/rag-retrieval`, …)
 > Started: 2026-09-11 by Claude Sonnet 5
-> Status: in-progress (ingestion half — Task 12.a — complete; retrieval — Task 12.b — not started)
+> Status: in-progress (ingestion — Task 12.a — complete; retrieval — Task 12.b — complete; capability not yet wired into the Orchestrator loop, that's Task 15)
 
 ## Goal
 
@@ -138,11 +138,62 @@ not installed in this venv): 326 passed, 9 skipped, 5 deselected (-m "not integr
 - Manual verification (§8, real Ollama + real Chroma inspection) has not been run — no Ollama available in this session's sandbox. Please run it before merge if possible: `ollama serve` with `qwen3-embedding:0.6b` pulled, `POST` a real synthetic SOP, poll `GET /api/v1/knowledge-base` until `ready`, inspect `data/chroma/`, then `DELETE` and confirm removal.
 - `chromadb==1.5.9` was installed into `backend/.venv`; whoever provisions a fresh environment should re-run `pip install -r backend/requirements.txt`.
 
+### Entry 6 — 2026-09-11 16:00 — Retrieval pipeline + search_knowledge_base executor implemented (Task 12.b, branch `feature/rag-retrieval`)
+
+**What changed:**
+- `backend/domain/rag/retrieval.py` (was an empty stub): `RELEVANCE_FLOOR = 0.50` (named constant, locked per task §7/§11 — "changeable only via documented retrieval-quality testing"), `MAX_TOP_K = 50` (bounds `top_k` before it reaches Chroma, per §7 Error Handling), `RetrievalError` (distinct from a genuine empty result — raised for embedding failure, Chroma query error, or an empty/uninitialised `knowledge_base` collection), `_distance_to_similarity(distance)` (`1 / (1 + distance)` — see "Decisions made" below), `retrieve(query, top_k=5, job_id=None)` (embeds the query via `model_runtime.embed("embedding", query, job_id=job_id)`, checks `collection.count() == 0` first and raises `RetrievalError` if so, runs `collection.query(query_embeddings=[...], n_results=bounded_top_k)`, converts each hit's distance to a similarity, drops anything `< RELEVANCE_FLOOR`, returns `{kb_document_id, title, chunk_text, score}` dicts sorted by score descending — an empty list here is success, not failure). Reuses `domain.rag.ingestion.get_kb_collection()` (Task 12.a) rather than opening a second `chromadb.PersistentClient` against the same path.
+- `backend/domain/capabilities/search_knowledge_base.py` (was `raise NotImplementedError`): brought in line with the executor convention used by `generate_code.py`/`execute_code.py`/`create_docx.py`/`create_xlsx.py` — `validate_input(arguments: dict) -> SearchKnowledgeBaseInput`, `validate_output(result: dict) -> SearchKnowledgeBaseOutput` (both via `registry.validate_input`/`validate_output`, wrapped in a local `CapabilityValidationError`), `execute_search_knowledge_base(job_id: str, arguments: dict) -> dict` (validate → `retrieval.retrieve(query, top_k, job_id)` → shape `{"results": [...]}` → `validate_output` → return `.model_dump(mode="json")` per result so `UUID`/float fields serialize to plain JSON-compatible types). The old signature (`execute_search_knowledge_base(input_data: SearchKnowledgeBaseInput) -> SearchKnowledgeBaseOutput`) was replaced — it was never implemented (still `NotImplementedError`) and didn't match any of the four real executors already in the codebase, so this isn't a "silent contract change", it's the first real implementation of this stub. `RetrievalError` is deliberately **not** caught here — it propagates out of the executor so a future Task 15 dispatcher can translate it to `status: failed`, distinct from a normal return with `results: []`.
+- `backend/tests/test_rag_retrieval.py` (new): 16 tests — relevant-hit shape/score/ordering, `top_k` default (5) and explicit value honored, honest-empty (populated collection, no hit ≥ 0.50 → `[]`, no exception), floor-boundary test (distance 0.96 → score ≈0.5102 included; distance 1.04 → score ≈0.4902 excluded — see "Decisions made"), embedding failure (`ModelRuntimeUnavailableError`/`ModelRuntimeError`) → `RetrievalError`, empty/uninitialised collection → `RetrievalError`, Chroma query error (monkeypatched `collection.query`) → `RetrievalError`, an explicit "empty-vs-failure are distinguishable" test, executor-level tests (validated shape, empty result does not raise, `RetrievalError` propagates, empty query rejected by `validate_input`), and two static guards: no module besides `search_knowledge_base.py`/`retrieval.py` itself imports `domain.rag.retrieval` (grep-based `rglob` scan, mirroring the pattern already used by `tests/test_model_runtime.py::TestStaticCheck`), and no "prepend retrieved context" / "auto-retrieve" code exists anywhere in `backend/`.
+
+**Why:** Implements `tasks/12b-rag-retrieval.md` exactly. Reads exactly what `[[feature-rag]]` Entry 1's ingestion pipeline wrote: Chroma collection `knowledge_base`, chunk id `"{kb_document_id}:{chunk_index}"`, metadata `{kb_document_id, title, category, chunk_index}`.
+
+**How to verify:**
+```bash
+cd backend && .venv/bin/python -m pytest tests/test_rag_retrieval.py -q
+```
+16 passed. Full suite: `.venv/bin/python -m pytest -q --ignore=tests/test_artifacts_docx.py --ignore=tests/test_artifacts_xlsx.py --ignore=tests/test_document_processing.py --ignore=tests/test_lifecycle_manager.py -m "not integration"` → 342 passed, 9 skipped, 5 deselected (unchanged pre-existing gaps from Entries 3–4 on the ingestion branch — no regressions).
+
+Manual verification (§8: real Ollama + a seeded KB + a stopped-Ollama failure check) not run in this session — same sandbox constraint as Task 12.a (Entry 1).
+
+**Open issues / known gaps:**
+- **Doc/task contradiction, flagged not resolved by me:** `docs/capabilities.md#search_knowledge_base` "Failure modes" line currently reads: *"empty knowledge base, no results above a relevance floor (returned as an empty `results[]`, not an error...)"* — i.e. it lists an **empty knowledge base** as a non-error, empty-result case. `tasks/12b-rag-retrieval.md` §11 explicitly marks as a "**Resolved (finalisation decision)**" that an empty/uninitialised collection is `status: failed`, distinct from a populated-but-no-match `results: []`, and repeats this in §7 Requirement 3, §9 Acceptance Criteria, and §10 Known Risks. I implemented the task file's explicit, repeated, "Resolved" decision (empty collection → `RetrievalError`) since it is more specific and more recently locked for this exact question than the older `docs/capabilities.md` phrasing — but I did not update `docs/capabilities.md` (not in this task's Allowed Files, and rewriting a capability contract doc isn't mine to do unilaterally). **Whoever owns `docs/capabilities.md` should update its "Failure modes" line to match** (mirrors the `docs/audit.md`-vs-code gap fixed in Entry 2 on the ingestion side — the doc anchor and the implementation should agree).
+- Manual verification (real Ollama) still needs to be run by whoever has it available locally.
+- The `MAX_TOP_K = 50` bound and the `1/(1+distance)` similarity formula are both implementation decisions this task's spec asked me to make and document (§10 "Known Risks": "convert to a higher-is-better similarity... and document the conversion") — not independently locked elsewhere. Task 19's retrieval-quality testing is the sanctioned place to revisit either if real embeddings behave differently than expected.
+
+**Decisions made:**
+- **Distance→similarity conversion:** Chroma's `knowledge_base` collection was created by Task 12.a with `get_or_create_collection(name=...)` and no explicit `metadata={"hnsw:space": ...}`, so it uses Chroma's default **squared L2 distance** (verified empirically: `query([1,0,0])` against a stored `[0,1,0]` returns `distance=2.0`, i.e. `|1-0|²+|0-1|²`). Squared L2 is unbounded and lower-is-better, not a similarity. Converted via **`score = 1 / (1 + distance)`**, bounded to `(0, 1]`, monotonically decreasing in distance. Deliberately did **not** use the `1 - distance/2` cosine-from-L2 shortcut (valid only for unit-normalized vectors) because it isn't verified that `qwen3-embedding:0.6b`'s Ollama output is unit-normalized, and an unverified assumption there would silently miscalibrate the 0.50 floor. If Task 19's real-embedding testing shows the vectors *are* unit-normalized and a cosine-based conversion tracks human relevance judgments better, that's the sanctioned place to switch formulas — not a silent change here.
+- **`RetrievalError` is a new, dedicated exception** (not the existing `CapabilityValidationError` pattern `generate_code.py` uses for all failures) because this task explicitly requires a signal that's structurally distinguishable from "validation failed" and from "succeeded with `results: []`" — a future Task 15 dispatcher needs to tell these apart, and reusing `CapabilityValidationError` for both "malformed input" and "Ollama is down" would erase that distinction right when it matters most (§7 Requirement 3, locked).
+- **`get_kb_collection()` is reused as-is from `ingestion.py`**, not duplicated or moved to a new shared module — the task's "May Modify If Required" note allowed a new shared helper "only... coordinate", and a plain import is the smaller, equally-correct option; no second Chroma client is opened (§10 Known Risks, both task files).
+- **Executor signature changed** from the pre-existing (never-implemented) `execute_search_knowledge_base(input_data) -> SearchKnowledgeBaseOutput` to `execute_search_knowledge_base(job_id: str, arguments: dict) -> dict`, matching 4 of the 5 other capability executors in the codebase — see "What changed" above.
+- Static-guard tests use the same `.venv`/`venv` substring-skip fix already applied in `tests/test_model_runtime.py` (Entry 4 on the ingestion branch) — `any("venv" in part for part in py_file.parts)` — to avoid the identical false-positive class if a vendored dependency ever matches the grep pattern.
+
+**Supersedes / references:** Builds on Entry 1 (Task 12.a's frozen Chroma contract) and reuses the fix from Entry 4 (the `.venv`-skip pattern) in its own new static-guard tests.
+
+---
+
+### Entry 7 — 2026-09-11 16:10 — branch complete (Task 12.b)
+
+**Status:** completed
+
+**Summary:** Implemented the retrieval pipeline (`domain/rag/retrieval.py`) and the `search_knowledge_base` capability executor (`domain/capabilities/search_knowledge_base.py`), replacing its `NotImplementedError` stub. Query embedding → Chroma vector search → distance-to-similarity conversion → 0.50 relevance-floor filtering → the exact `docs/capabilities.md#search_knowledge_base` output shape. Genuine no-match and retrieval failure are distinguishable (`results: []` vs. a raised `RetrievalError`). No reranking, no auto-retrieve path, no locked contract (`AGENTS.md` §6) violated. `tests/test_rag_retrieval.py` — 16 tests, all passing, including two static guards enforcing ADR-03's "explicit invocation only" rule.
+
+**Final test status:**
+```
+tests/test_rag_retrieval.py: 16 passed
+Full suite (excluding the same pre-existing missing-dependency collection errors noted in Entry 1):
+342 passed, 9 skipped, 5 deselected (-m "not integration", require live Ollama)
+```
+
+**Reviewer notes:**
+- Flagged (not resolved) doc/task contradiction on `docs/capabilities.md#search_knowledge_base`'s "Failure modes" line vs. this task's locked "empty collection → failed" decision — see Entry 6 "Open issues". Someone should reconcile the doc.
+- This capability is not yet reachable from the Orchestrator loop — `domain/job_manager/manager.py`'s `invoke_capability` branch is still an explicit stub ("capability invocation not implemented in stub; Task 15 will handle"), confirmed by inspection before starting this task. Nothing in this branch changes that; Task 15 wires dispatch.
+- Manual verification (§8, real Ollama + a seeded KB + a stopped-Ollama check) has not been run — no Ollama available in this session's sandbox, same constraint as Task 12.a.
+
 ## Open questions for the user
 
-None outstanding — the two "Resolved" items in the task spec (§11) were followed as locked decisions, and no new ambiguity was hit that isn't already covered by Entries 1–3 above.
+None outstanding on the ingestion side (Task 12.a). On the retrieval side (Task 12.b): the `docs/capabilities.md` vs. task-file contradiction noted in Entry 6 is flagged for whoever owns doc maintenance, but was not blocking — the task file's own explicit "Resolved (finalisation decision)" was followed.
 
 ## Links
 - PR: (not yet opened — human developer step per `AGENTS.md` §7)
-- Related branches / logs: `feature/rag-ingestion`; Task 12.b will likely continue on this same branch or a follow-up `feature/rag-retrieval` branch and should read this log first.
-- Doc references: `docs/rag.md`, `docs/api.md`, `docs/data-model.md`, `docs/audit.md`, `docs/models.md`, `docs/backend.md`, `docs/decisions.md` (ADR-03), `tasks/12a-rag-ingestion.md`
+- Related branches / logs: `feature/rag-ingestion` (Task 12.a, merged to `main` per this repo's history — commits `bc69e7b`/`8d6b303`), `feature/rag-retrieval` (Task 12.b, this entry).
+- Doc references: `docs/rag.md`, `docs/api.md`, `docs/data-model.md`, `docs/audit.md`, `docs/capabilities.md`, `docs/agent.md`, `docs/models.md`, `docs/backend.md`, `docs/decisions.md` (ADR-03), `tasks/12a-rag-ingestion.md`, `tasks/12b-rag-retrieval.md`
