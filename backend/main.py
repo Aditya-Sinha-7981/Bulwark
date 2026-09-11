@@ -8,6 +8,7 @@ from api.artifacts import router as artifacts_router
 from api.documents import router as documents_router
 from api.health import router as health_router
 from api.jobs import router as jobs_router
+from api.knowledge_base import router as knowledge_base_router
 from config import settings
 from utils.paths import all_managed_dirs
 
@@ -40,6 +41,7 @@ app.include_router(health_router, prefix="/api/v1")
 app.include_router(jobs_router, prefix="/api/v1")
 app.include_router(artifacts_router, prefix="/api/v1")
 app.include_router(documents_router, prefix="/api/v1")
+app.include_router(knowledge_base_router, prefix="/api/v1")
 
 
 if __name__ == "__main__":
