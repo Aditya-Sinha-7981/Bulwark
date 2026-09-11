@@ -13,19 +13,19 @@ from pathlib import Path
 import pytest
 from httpx import AsyncClient, ASGITransport
 
-# Add backend to path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# Add repo root to path so `backend.*` resolves when pytest is invoked directly.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from main import app
-from domain.audit.events import (
+from backend.main import app
+from backend.domain.audit.events import (
     VALID_EVENT_TYPES,
     emit,
     get_events_for_job,
     subscribe,
     unsubscribe,
 )
-from repositories import audit_events, conversations, jobs
-from repositories.db import get_connection
+from backend.repositories import audit_events, conversations, jobs
+from backend.repositories.db import get_connection
 
 
 @pytest.fixture
