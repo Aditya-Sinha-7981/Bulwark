@@ -268,6 +268,76 @@ class OllamaRuntime:
             )
             raise ModelRuntimeError(f"Ollama error {e.response.status_code}: {e.response.text}") from e
 
+    async def is_model_loaded(self, model_identifier: str) -> bool:
+        """Return whether the specified model is currently loaded in Ollama.
+
+        Ollama's process/model-state endpoint is intentionally accessed only
+        through Model Runtime. Lifecycle Manager must not know Ollama HTTP
+        endpoints.
+        """
+        client = await self._get_client()
+
+        try:
+            response = await client.get("/api/ps")
+            response.raise_for_status()
+            data = response.json()
+
+            return any(
+                model_info.get("name") == model_identifier
+                for model_info in data.get("models", [])
+            )
+
+        except httpx.ConnectError as e:
+            raise ModelRuntimeUnavailableError(
+                f"Ollama unreachable: {e}"
+            ) from e
+
+        except httpx.ConnectTimeout as e:
+            raise ModelRuntimeUnavailableError(
+                "Ollama connection timeout (5s)"
+            ) from e
+
+        except httpx.HTTPStatusError as e:
+            raise ModelRuntimeError(
+                f"Ollama error {e.response.status_code}: "
+                f"{e.response.text}"
+            ) from e
+
+    async def unload(self, model_identifier: str) -> None:
+        """Request immediate unloading of a model from Ollama.
+
+        The lifecycle policy belongs to Lifecycle Manager; the HTTP operation
+        belongs here in Model Runtime.
+        """
+        client = await self._get_client()
+
+        payload = {
+            "model": model_identifier,
+            "prompt": "",
+            "stream": False,
+            "keep_alive": 0,
+        }
+
+        try:
+            response = await client.post("/api/generate", json=payload)
+            response.raise_for_status()
+
+        except httpx.ConnectError as e:
+            raise ModelRuntimeUnavailableError(
+                f"Ollama unreachable: {e}"
+            ) from e
+
+        except httpx.ConnectTimeout as e:
+            raise ModelRuntimeUnavailableError(
+                "Ollama connection timeout (5s)"
+            ) from e
+
+        except httpx.HTTPStatusError as e:
+            raise ModelRuntimeError(
+                f"Ollama error {e.response.status_code}: "
+                f"{e.response.text}"
+            ) from e
+
     async def _record(
         self,
         model: str,

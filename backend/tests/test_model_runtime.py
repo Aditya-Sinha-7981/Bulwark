@@ -366,7 +366,7 @@ class TestStaticCheck:
             # Skip test files and venv directory
             if "test_model_runtime.py" in str(py_file) or "test_" in py_file.name:
                 continue
-            if "venv" in py_file.parts:
+            if any("venv" in part for part in py_file.parts):
                 continue
             try:
                 content = py_file.read_text(encoding="utf-8")

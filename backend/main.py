@@ -7,8 +7,10 @@ from fastapi.responses import JSONResponse
 
 from backend.api.artifacts import router as artifacts_router
 from backend.api.conversations import router as conversations_router
+from backend.api.documents import router as documents_router
 from backend.api.health import router as health_router
 from backend.api.jobs import router as jobs_router
+from backend.api.knowledge_base import router as knowledge_base_router
 from backend.api.network_status import router as network_status_router
 from backend.config import settings
 from backend.domain.monitoring import network_monitor
@@ -83,6 +85,8 @@ app.include_router(network_status_router, prefix="/api/v1")
 app.include_router(conversations_router, prefix="/api/v1")
 app.include_router(jobs_router, prefix="/api/v1")
 app.include_router(artifacts_router, prefix="/api/v1")
+app.include_router(documents_router, prefix="/api/v1")
+app.include_router(knowledge_base_router, prefix="/api/v1")
 
 
 if __name__ == "__main__":
