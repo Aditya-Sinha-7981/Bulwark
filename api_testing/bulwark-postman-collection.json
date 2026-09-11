@@ -1,0 +1,593 @@
+{
+  "info": {
+    "_postman_id": "e4ad785d-340b-439a-bfd7-73e1c5b7cfa2",
+    "name": "Bulwark API",
+    "description": "Manual/local testing collection for the real Bulwark backend (Task 15 integration). Companion: docs/api-manual-testing-guide.md and api_testing/README.md.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Conversations",
+      "item": [
+        {
+          "name": "Create Conversation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/conversations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "conversations"
+              ]
+            },
+            "description": "POST /api/v1/conversations. Body is ignored/empty. Sets {{conversationId}} from the response for downstream requests.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300) {",
+                  "    const json = pm.response.json();",
+                  "    pm.environment.set('conversationId', json.conversation_id);",
+                  "    console.log('Set {{conversationId}} =', json.conversation_id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Conversation",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/conversations/{{conversationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "conversations",
+                "{{conversationId}}"
+              ]
+            },
+            "description": "Returns conversation metadata + ordered messages[]."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. Jobs",
+      "item": [
+        {
+          "name": "Create Job",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/jobs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "jobs"
+              ]
+            },
+            "description": "Creates a Job and runs it in the background. Sets {{jobId}}. Poll 'Get Job Status' until status is completed/failed.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"conversation_id\": \"{{conversationId}}\",\n  \"message\": \"What does the SOP say about X?\",\n  \"document_ids\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300) {",
+                  "    const json = pm.response.json();",
+                  "    pm.environment.set('jobId', json.job_id);",
+                  "    console.log('Set {{jobId}} =', json.job_id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Job Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/jobs/{{jobId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "jobs",
+                "{{jobId}}"
+              ]
+            },
+            "description": "Poll this. status: created|running|completed|failed. artifact_ids[] appears here once create_docx/create_xlsx succeeds."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Job Trace",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/jobs/{{jobId}}/trace",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "jobs",
+                "{{jobId}}",
+                "trace"
+              ]
+            },
+            "description": "Full ordered audit-event trace for this job (policy_decision, tool_invoked, model_invoked, artifact_created, job_completed, ...)."
+          },
+          "response": []
+        },
+        {
+          "name": "Stream Job Events (SSE)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/jobs/{{jobId}}/events?replay=true",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "jobs",
+                "{{jobId}}",
+                "events"
+              ],
+              "query": [
+                {
+                  "key": "replay",
+                  "value": "true"
+                }
+              ]
+            },
+            "description": "Server-Sent Events live stream, same event shape as /trace. Postman's VS Code extension may not render SSE well -- curl -N is the reliable fallback (see docs/api-manual-testing-guide.md)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "3. Documents",
+      "item": [
+        {
+          "name": "Upload Document",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/documents",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents"
+              ]
+            },
+            "description": "Multipart upload, field name MUST be 'file'. Allowed: image/jpeg, image/png, application/pdf. Max size per config/capabilities.yaml (extract_document.max_file_size_mb). In the Postman extension: Body tab -> form-data -> key 'file', type File, select fixtures/scan-clean.png. Sets {{documentId}}.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300) {",
+                  "    const json = pm.response.json();",
+                  "    pm.environment.set('documentId', json.document_id);",
+                  "    console.log('Set {{documentId}} =', json.document_id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Document Metadata",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/documents/{{documentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents",
+                "{{documentId}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "4. Artifacts",
+      "item": [
+        {
+          "name": "Get Artifact Metadata",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/artifacts/{{artifactId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "artifacts",
+                "{{artifactId}}"
+              ]
+            },
+            "description": "Get {{artifactId}} from a completed Job's artifact_ids array (Get Job Status) -- copy one value into the environment manually, there is no single-artifact endpoint to auto-capture from."
+          },
+          "response": []
+        },
+        {
+          "name": "Download Artifact",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/artifacts/{{artifactId}}/download",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "artifacts",
+                "{{artifactId}}",
+                "download"
+              ]
+            },
+            "description": "Returns raw file bytes with Content-Disposition. Use 'Save Response' -> 'Save to a file' to write it to disk and open the .docx/.xlsx."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "5. Knowledge Base",
+      "item": [
+        {
+          "name": "Ingest KB Document",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/knowledge-base/documents",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "knowledge-base",
+                "documents"
+              ]
+            },
+            "description": "Multipart: field 'file' (.txt/.md/.markdown/.pdf only) + optional 'metadata' as a JSON STRING (not nested form fields). Point 'file' at fixtures/sop-fire-safety.txt or sop-equipment-maintenance.txt. Sets {{kbDocumentId}}. Returns 202 'ingesting' -- poll 'List KB Documents' until status is 'ready'.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "metadata",
+                  "type": "text",
+                  "value": "{\"title\": \"Fire Safety SOP\", \"category\": \"safety\"}"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300) {",
+                  "    const json = pm.response.json();",
+                  "    pm.environment.set('kbDocumentId', json.kb_document_id);",
+                  "    console.log('Set {{kbDocumentId}} =', json.kb_document_id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List KB Documents",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/knowledge-base",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "knowledge-base"
+              ]
+            },
+            "description": "Poll after ingesting until the document's status is 'ready' before running a Workflow A/C job against it."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete KB Document",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/knowledge-base/documents/{{kbDocumentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "knowledge-base",
+                "documents",
+                "{{kbDocumentId}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "6. Health & Network",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Run first every session. Real probes for DB / Ollama (TCP liveness) / Docker. Never 503s -- degradation shows per-field as 'unavailable'."
+          },
+          "response": []
+        },
+        {
+          "name": "Network Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/network-status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "network-status"
+              ]
+            },
+            "description": "Re-run repeatedly (Postman's Runner, or just click again) while a Job is running to show external_connections_detected staying false live -- Workflow D."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "7. Demo Workflows (docs-demo.md)",
+      "item": [
+        {
+          "name": "Workflow C - Grounded KB Question",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/jobs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "jobs"
+              ]
+            },
+            "description": "docs/demo.md Workflow C. Requires the KB seeded+ready first. Expect trace: search_knowledge_base tool_invoked -> grounded respond. Edit the message to match whatever you actually put in your seeded fixture.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"conversation_id\": \"{{conversationId}}\",\n  \"message\": \"According to our SOPs, what is the required inspection frequency for fire extinguishers?\",\n  \"document_ids\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300) {",
+                  "    const json = pm.response.json();",
+                  "    pm.environment.set('jobId', json.job_id);",
+                  "    console.log('Set {{jobId}} =', json.job_id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Workflow A - Scan to Approval Note",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/jobs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "jobs"
+              ]
+            },
+            "description": "docs/demo.md Workflow A. Run 'Upload Document' first with a scanned-report image/PDF to populate {{documentId}}, and seed the KB first. Expect trace: extract_document -> search_knowledge_base -> create_docx -> artifact_created.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"conversation_id\": \"{{conversationId}}\",\n  \"message\": \"Review the attached inspection report and draft an approval note referencing relevant SOPs.\",\n  \"document_ids\": [\n    \"{{documentId}}\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300) {",
+                  "    const json = pm.response.json();",
+                  "    pm.environment.set('jobId', json.job_id);",
+                  "    console.log('Set {{jobId}} =', json.job_id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Workflow B - Code Gen + Sandbox Exec",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/jobs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "jobs"
+              ]
+            },
+            "description": "docs/demo.md Workflow B. Requires Docker running + bulwark-sandbox:latest built. Expect trace: generate_code -> execute_code as distinct steps, and (if the first attempt fails) a second generate_code/execute_code pair.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"conversation_id\": \"{{conversationId}}\",\n  \"message\": \"Write and run a Python script that computes the total volume of 12 cylindrical tanks, each 2m radius and 5m height.\",\n  \"document_ids\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300) {",
+                  "    const json = pm.response.json();",
+                  "    pm.environment.set('jobId', json.job_id);",
+                  "    console.log('Set {{jobId}} =', json.job_id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000/api/v1",
+      "type": "string"
+    }
+  ]
+}
