@@ -1,4 +1,5 @@
 import { Icon } from '../ui/Icon.jsx'
+import SovereigntyIndicator from '../SovereigntyIndicator.jsx'
 
 export function StatusBar({ healthState }) {
   const connected = healthState === 'connected'
@@ -16,6 +17,7 @@ export function StatusBar({ healthState }) {
         <Icon name="lock" size={12} className="text-ok" />
         Zero external egress enforced
       </span>
+      <SovereigntyIndicator />
       <span className="mono ml-auto hidden text-txt-dim md:inline">
         {connected ? '127.0.0.1:8000 • loopback only' : 'no connection • offline'}
       </span>
