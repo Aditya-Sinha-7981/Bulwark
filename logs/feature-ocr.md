@@ -215,3 +215,25 @@ python -m pytest tests/test_document_processing.py -q
 
 **Supersedes / references:** Follows Entry 6 (venv fix); completes the Phase 4 unblock.
 
+
+---
+
+### Entry 8 — 2026-09-12 12:20 — _normalize_bbox crashed on PaddleOCR 3.x numpy polys (branch `fix/model-runtime-num-ctx-and-timeout`)
+
+**What changed:**
+- `backend/domain/document_processing/ocr.py` — `_normalize_bbox()` rewritten to be shape-agnostic: converts input via `np.asarray(..., dtype=float)` first and handles (4,2)/(N,2) polygons, (N,4)/(1,4) boxes, and (4,)/(8,) flat forms; python-sequence fallback retained; uninterpretable input returns `[]` instead of raising.
+- `backend/tests/test_document_processing.py` — new `TestNormalizeBboxPaddle3x` class (7 tests): numpy (4,2) poly, (N,4) batch, (4,) flat box, nested python points, flat python 4, uninterpretable→empty, and a full `_parse_predict_mapping` pass with a real 3.x-shaped result (numpy polys). Imports gained `OCREngine`, `_normalize_bbox`.
+
+**Why:** Found live (job `242126e8`, 2026-09-12, Phase 4, fresh conversation): `extract_document` failed with `OCR failed: only length-1 arrays can be converted to Python scalars` on every real image. Probed the actual PaddleOCR 3.7 result (`probe` script): the per-page item is an `OCRResult` object whose `rec_polys` is a **list of numpy (4,2) ndarrays** (`rec_boxes`: (57,4) ndarray). `_normalize_bbox` did `list(raw)` → rows are ndarrays → `seq[0]` is not list/tuple → took the "flat" branch → `int(float(x))` on a (2,) ndarray → ValueError. The wrapper was written for 2.x python-list shapes. Note the parser branch selection itself was correct — `_as_mapping` handled the OCRResult object and found `rec_texts`; only bbox normalization was broken. Also confirmed on this build: no `layout_det_res` key exists, so layout-classification escalation signals can't fire — matching the corpus README §15 caveat (confidence/completeness carry escalation).
+
+**How to verify:**
+- `backend/.venv/bin/python -m pytest backend/tests/test_document_processing.py -q` → 50 passed (includes the 7 new regression tests).
+- Full non-integration suite → 502 passed; only failure remains the pre-existing environmental `test_job_manager_dispatch.py::test_executor_error_is_failed_tool_result_not_crash`.
+- Live end-to-end on the real uploaded report (pre-fix-failed document `6f774167`): `run_ocr(...)` → 57 regions, mean confidence 0.997, ~14s, and all ground-truth readings present (`PIR-2026-0842`, `CWP-204A`, `8.3`, `5.6`, `64`, `68`) — clean scan correctly above the 0.75 escalation threshold, no vision escalation expected.
+
+**Open issues / known gaps:** None for this fix.
+
+**Decisions made:** Shape-agnostic numpy-first normalization rather than type-sniffing (`isinstance(seq[0], (list, tuple))`) — paddle's return types change between versions/keys; converting through `asarray` + explicit shape handling is version-tolerant, and the `[]`-on-uninterpretable fallback keeps OCR failure semantics on the document (UnreadableDocumentError path), never on a bbox crash.
+
+**Supersedes / references:** Extends Entry 6/7's environment unblocking — this was the last live OCR blocker for Workflow A.
+
