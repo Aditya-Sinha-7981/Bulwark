@@ -167,3 +167,28 @@ Key details:
 - Branch: `feature/orchestrator`
 - Related logs: `logs/feature-capability-registry.md`, `logs/feature-job-system.md`, `logs/feature-policy.md`
 - Doc references: `docs/agent.md`, `docs/capabilities.md`, `docs/audit.md`, `docs/data-model.md`
+
+---
+
+### Entry 5 — 2026-09-12 12:35 — Document Deliverables Rule in the system prompt (branch `fix/model-runtime-num-ctx-and-timeout`)
+
+**What changed:**
+- `backend/domain/orchestrator/prompt_builder.py` — new "Document Deliverables Rule" section in `build_system_prompt()` (between Explicit Retrieval Rule and Policy Denial Rule): when the user requests a document deliverable (approval note, report, letter, spreadsheet, ...), the Orchestrator must propose `create_docx`/`create_xlsx` with structured arguments matching the input schema, then respond briefly (filename + summary) after the artifact succeeds; inline text only as a fallback when the document capability is denied/failed, or when the user explicitly asked for chat text.
+- `backend/tests/test_orchestrator.py` — `test_prompt_includes_document_deliverables_rule` in `TestPromptBuilder` (asserts the section heading, capability names, `artifact_id`, and the fallback).
+
+**Why:** Observed live (job `24e02e8e`, 2026-09-12, Phase 4): Workflow A executed flawlessly through `extract_document` and `search_knowledge_base`, and the final message was a high-quality, fully SOP-grounded approval note (every ground-truth finding correct: 8.3 mm/s → SOP-001 Band 3, 7-day corrective maintenance + notify Area Engineer; ~6 drops/min → Class II) — but the model answered inline and never proposed `create_docx`, so `artifact_ids: []` and no artifact existed to download. Root cause: the system prompt listed capability schemas but contained no guidance about when document deliverables must route through the artifact capabilities, and `docs/demo.md` Workflow A's expected outcome (a docx artifact) depends on that proposal. This stays within locked rule 6 (model produces structured data; application code renders the file) — the rule channels the model's output into the schema, it does not change rendering.
+
+**How to verify:**
+- `backend/.venv/bin/python -m pytest backend/tests/test_orchestrator.py -q` → 44 passed.
+- Full non-integration suite → 503 passed; only failure is the pre-existing environmental dispatch test.
+- Live: re-run Workflow A in a FRESH conversation → trace should now include a `create_docx` step (tool_invoked + artifact_created) and `artifact_ids[]` populated in Get Job Status; final message brief.
+
+**Open issues / known gaps:**
+- Model compliance with the new rule is probabilistic — verify on the live re-run; if the 9B still skips `create_docx`, the next lever is an example proposal block in the prompt (not done preemptively — prompt bloat has its own cost, and the current prompt already runs ~2.3K tokens).
+
+**Decisions made:**
+- Prompt-level guidance (not code-level forcing): the Orchestrator deciding *whether* a request is a document deliverable is exactly the model's job (docs/agent.md role); forcing it in code would need a classifier, which is heavier and beyond SIH scope.
+- No `docs/agent.md` change: the deliverable expectation is owned by `docs/demo.md` (Workflow A) and `docs/capabilities.md` (artifact semantics); the prompt now implements it. Flagged for the demo doc owner to double-check the Workflow A narrative mentions the docx artifact.
+
+**Supersedes / references:** Builds on Entry 4 (identical-proposal guard) — unrelated mechanism; no contradictions.
+
