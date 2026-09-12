@@ -1,12 +1,8 @@
 import { Icon } from '../ui/Icon.jsx'
 
+// SIH Demo: Workbench-only sidebar
 const NAV_ITEMS = [
   { id: 'workbench', label: 'Workbench', icon: 'workbench' },
-  { id: 'jobs', label: 'Jobs', icon: 'jobs' },
-  { id: 'knowledge', label: 'Knowledge', icon: 'knowledge' },
-  { id: 'artifacts', label: 'Artifacts', icon: 'artifacts' },
-  { id: 'audit', label: 'Audit', icon: 'audit' },
-  { id: 'settings', label: 'Settings', icon: 'settings' },
 ]
 
 export function Sidebar({ current, onNavigate, open, onClose, healthState }) {
@@ -39,7 +35,7 @@ export function Sidebar({ current, onNavigate, open, onClose, healthState }) {
           </div>
         </div>
 
-        {/* Navigation */}
+        {/* Navigation - Workbench only for SIH demo */}
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4" aria-label="Main">
           <div className="label px-2 pb-2">Workspace</div>
           {NAV_ITEMS.map((item) => {
