@@ -1,3 +1,113 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-ink text-txt-hi antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04';
+  }
+
+  ::selection {
+    @apply bg-accent-soft;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-line;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    @apply bg-lineStrong;
+  }
+}
+
+@layer components {
+  /* ---- Surfaces ---- */
+  .card {
+    @apply rounded-xl border border-line bg-surface;
+  }
+
+  /* ---- Buttons ---- */
+  .btn {
+    @apply inline-flex h-9 select-none items-center justify-center gap-2 rounded-lg border px-3.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply border-0 bg-accent-strong text-white shadow-sm hover:bg-accent;
+  }
+
+  .btn-ghost {
+    @apply border-line bg-transparent text-txt-mid hover:border-lineStrong hover:bg-elevated hover:text-txt-hi;
+  }
+
+  .btn-quiet {
+    @apply border-transparent bg-transparent text-txt-mid hover:bg-elevated hover:text-txt-hi;
+  }
+
+  .btn-danger {
+    @apply border-danger/40 bg-danger-soft text-danger hover:bg-danger/15;
+  }
+
+  /* ---- Inputs ---- */
+  .input {
+    @apply h-10 w-full rounded-lg border border-line bg-panel px-3.5 text-sm text-txt-hi placeholder:text-txt-dim focus:border-accent/60 focus:outline-none focus:ring-2 focus:ring-accent/40;
+  }
+
+  /* ---- Labels ---- */
+  .label {
+    @apply text-[11px] font-medium uppercase tracking-[0.12em] text-txt-dim;
+  }
+
+  .mono {
+    @apply font-mono;
+  }
+
+  /* ---- Status badges ---- */
+  .badge {
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium leading-5;
+  }
+
+  .badge-green {
+    @apply badge border-ok/40 bg-ok-soft text-ok;
+  }
+
+  .badge-blue {
+    @apply badge border-accent/40 bg-accent-soft text-accent;
+  }
+
+  .badge-red {
+    @apply badge border-danger/40 bg-danger-soft text-danger;
+  }
+
+  .badge-purple {
+    @apply badge border-band/40 bg-band-soft text-band;
+  }
+
+  .badge-gray {
+    @apply badge border-lineStrong bg-elevated text-txt-low;
+  }
+
+  /* ---- Small pill (security / connection chip) ---- */
+  .pill {
+    @apply inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium leading-none;
+  }
+}
