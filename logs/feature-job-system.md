@@ -100,3 +100,22 @@ Implement the Job/JobStep lifecycle and the Job HTTP API: create a Job, transiti
 
 - Related branches / logs: `fix/model-runtime-num-ctx-and-timeout` (prior three fixes, committed), `logs/feature-orchestrator.md` (identical-proposal guard), `logs/feature-rag.md`, `logs/feature-model-runtime.md`
 - Doc references: `docs/demo.md`, `docs/agent.md`, `docs/api.md`, `docs/data-model.md`, `docs/capabilities.md`
+---
+
+### Entry 5 — 2026-09-12 13:40 — SSE stream treated mid-job `error` events as terminal (branch `fix/model-runtime-num-ctx-and-timeout`)
+
+**What changed:**
+- `backend/api/jobs.py` — `stream_job_events`'s replay scan and live loop now terminate **only** on `event_type == "job_completed"` (was `in ("job_completed", "error")`). In-source comment explains the audit contract.
+- `backend/tests/test_audit_events.py` — new `TestSSERoute::test_sse_replay_does_not_terminate_on_mid_job_error_event`: seeds a Job with a mid-job `error` event (recoverable tool failure), opens the SSE generator directly, asserts the replayed error arrives and the stream stays open (per-chunk outcome handling: TimeoutError/CancelledError → open; StopAsyncIteration → the old bug).
+
+**Why:** Found during the pre-merge frontend↔backend contract audit (2026-09-12). `docs/audit.md` defines `error` as a mid-job, recoverable event (tool failures, background-process failures) — Jobs continue after them; only `job_completed` (payload.status completed|failed) terminates a Job, and the `finally` block in `manager.run_job` always emits it. The old replay scan meant **any late joiner on a Job whose history contained a mid-job error got replay + an immediately-closed stream** — live events never arrived. The same wrong assumption existed independently in the frontend (`useJobEvents` TERMINAL_EVENT_TYPES, fixed on the frontend side). Confirmed live today: jobs `a28d1a22`, `b806d722`, `24e02e8e` all emitted mid-job `error` events and then completed.
+
+**How to verify:**
+- `backend/.venv/bin/python -m pytest backend/tests/test_audit_events.py -q` → 17 passed.
+- Full non-integration suite → 509 passed, 0 failed (the previously-flaky environmental `test_executor_error_is_failed_tool_result_not_crash` passed this run).
+- Manual: open SSE on any completed job containing a mid-job error → replay streams fully and the connection behaves per job state.
+
+**Open issues / known gaps:** None for this fix. Frontend-side duplicates/terminal handling tracked on the frontend fix branch.
+
+**Supersedes / references:** None — corrects the original Task 5-era SSE implementation (Entry 2/3).
+
