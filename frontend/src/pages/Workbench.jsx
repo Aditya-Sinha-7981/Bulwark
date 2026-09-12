@@ -1,14 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
-import { PromptComposer } from '../components/workbench/PromptComposer.jsx'
-import { QuickActions } from '../components/workbench/QuickActions.jsx'
-import { TaskDetailsPanel } from '../components/workbench/TaskDetailsPanel.jsx'
-import TaskResult from '../components/workbench/TaskResult.jsx'
-import { Badge } from '../components/ui/Badge.jsx'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { useApi, useApiMutation } from '../hooks/useApi'
+import { getHealth, getJob, getNetworkStatus } from '../services/api'
+import { ChatPanel } from '../components/ChatPanel'
+import { JobTracePanel } from '../components/JobTracePanel'
+import { ArtifactPanel } from '../components/ArtifactPanel'
+import { RagEvidencePanel } from '../components/RagEvidencePanel'
+import { ErrorBanner } from '../components/ErrorBanner'
+import { Badge } from '../components/ui/Badge'
+import { Icon } from '../components/ui/Icon'
+import { Button } from '../components/ui/Button.jsx'
 
-// Task simulation engine — frontend integration point.
-// A real submission would call createJob() from services/api.js once the
-// backend exposes a create-conversation endpoint. Until then the workflow is
-// simulated locally (clearly separated here) so the UI is fully testable.
+// Simulation fallback — used when backend is unreachable
 const SIMULATED_STEPS = [
   { label: 'Task received', event: 'job_created' },
   { label: 'Policy checked', event: 'policy_decision · allow' },
@@ -17,10 +19,9 @@ const SIMULATED_STEPS = [
   { label: 'Summary generated', event: 'artifact_created' },
   { label: 'Task completed', event: 'job_completed' },
 ]
-
 const STEP_MS = 450
 
-function buildResult(prompt, file) {
+function buildSimulatedResult(prompt, file) {
   const docLabel = file ? ` of the attached "${file.name}" (${file.size})` : ''
   return {
     title: "Here's a summary of the document",
@@ -38,33 +39,99 @@ function buildResult(prompt, file) {
   }
 }
 
-function initSteps() {
+function initSimSteps() {
   return SIMULATED_STEPS.map((step) => ({ ...step, state: 'pending' }))
 }
 
 export function Workbench({ healthState }) {
-  const [prompt, setPrompt] = useState('')
-  const [file, setFile] = useState(null)
-  const [submission, setSubmission] = useState(null)
-  const [result, setResult] = useState(null)
-  const [steps, setSteps] = useState(initSteps())
-  const timers = useRef([])
-  const running = Boolean(submission && !result)
+  // Real backend state
+  const [conversationId, setConversationId] = useState(null)
+  const [activeJobId, setActiveJobId] = useState(null)
+  const [jobData, setJobData] = useState(null)
+  const [errors, setErrors] = useState([])
+  const [networkStatus, setNetworkStatus] = useState(null)
 
-  const clearTimers = () => {
-    timers.current.forEach(clearTimeout)
-    timers.current = []
-  }
+  // Simulation fallback state
+  const [simMode, setSimMode] = useState(false)
+  const [simPrompt, setSimPrompt] = useState('')
+  const [simFile, setSimFile] = useState(null)
+  const [simSubmission, setSimSubmission] = useState(null)
+  const [simResult, setSimResult] = useState(null)
+  const [simSteps, setSimSteps] = useState(initSimSteps())
+  const simTimersRef = useRef([])
 
-  const runSimulation = (sub) => {
-    setSteps(initSteps())
-    setSubmission(sub)
-    setResult(null)
+  // Health check to determine if we can use real backend
+  const { data: healthData, loading: healthLoading } = useApi(getHealth)
+
+  // Network status polling (for sovereignty indicator)
+  useEffect(() => {
+    if (healthState !== 'connected') return
+    let cancelled = false
+    const poll = async () => {
+      try {
+        const status = await getNetworkStatus()
+        if (!cancelled) setNetworkStatus(status)
+      } catch {
+        // Ignore network status errors
+      }
+    }
+    poll()
+    const interval = setInterval(poll, 15000)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [healthState])
+
+  // Determine if we should use simulation fallback
+  useEffect(() => {
+    if (!healthLoading) {
+      const backendConnected = healthState === 'connected' && healthData?.status === 'ok'
+      setSimMode(!backendConnected)
+    }
+  }, [healthData, healthLoading, healthState])
+
+  // Poll job status when we have an active job (real mode)
+  useEffect(() => {
+    if (!activeJobId || simMode) return
+    let cancelled = false
+    const poll = async () => {
+      try {
+        const job = await getJob(activeJobId)
+        if (!cancelled) {
+          setJobData(job)
+          if (job.status === 'completed' || job.status === 'failed') {
+            // Job finished, stop polling
+          }
+        }
+      } catch {
+        // Ignore polling errors
+      }
+    }
+    poll()
+    const interval = setInterval(poll, 3000)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [activeJobId, simMode])
+
+  // Simulation functions
+  const clearSimTimers = useCallback(() => {
+    simTimersRef.current.forEach(clearTimeout)
+    simTimersRef.current = []
+  }, [])
+
+  const runSimulation = useCallback((sub) => {
+    clearSimTimers()
+    setSimSteps(initSimSteps())
+    setSimSubmission(sub)
+    setSimResult(null)
 
     SIMULATED_STEPS.forEach((_, index) => {
-      timers.current.push(
+      simTimersRef.current.push(
         setTimeout(() => {
-          setSteps((prev) =>
+          setSimSteps((prev) =>
             prev.map((step, i) =>
               i === index ? { ...step, state: 'active' } : i < index ? { ...step, state: 'done' } : step
             )
@@ -73,53 +140,92 @@ export function Workbench({ healthState }) {
       )
     })
 
-    timers.current.push(
+    simTimersRef.current.push(
       setTimeout(() => {
-        setSteps((prev) => prev.map((step) => ({ ...step, state: 'done' })))
-        setResult(buildResult(sub.prompt, sub.file))
+        setSimSteps((prev) => prev.map((step) => ({ ...step, state: 'done' })))
+        setSimResult(buildSimulatedResult(sub.prompt, sub.file))
       }, SIMULATED_STEPS.length * STEP_MS)
     )
+  }, [clearSimTimers])
+
+  const handleSimSubmit = () => {
+    if (!simPrompt.trim()) return
+    runSimulation({ prompt: simPrompt.trim(), file: simFile })
+    setSimPrompt('')
+    setSimFile(null)
   }
 
-  useEffect(() => clearTimers, [])
+  // Real backend handlers
+  const handleJobCreated = useCallback((jobId) => {
+    setActiveJobId(jobId)
+    setJobData(null)
+  }, [])
 
-  const handleSubmit = () => {
-    if (!prompt.trim() || running) return
-    runSimulation({ prompt: prompt.trim(), file })
-  }
+  const handleError = useCallback((err) => {
+    setErrors((prev) => [...prev, err])
+  }, [])
 
-  const handleQuickAction = (action) => {
-    setPrompt(action.prompt)
-    if (action.id === 'search-knowledge') setFile(null)
-    document.querySelector('[aria-label="Prompt"]')?.focus()
-  }
+  const dismissError = useCallback((err) => {
+    setErrors((prev) => prev.filter((e) => e !== err))
+  }, [])
 
-  const handleFollowUp = (text) => {
-    setPrompt(text)
-    setFile(null)
-    runSimulation({ prompt: text, file: null })
-  }
+  const clearAllErrors = useCallback(() => {
+    setErrors([])
+  }, [])
+
+  // Determine what to render
+  const running = simMode ? Boolean(simSubmission && !simResult) : Boolean(activeJobId && jobData?.status === 'running')
+  const completed = simMode ? Boolean(simResult) : Boolean(jobData && (jobData.status === 'completed' || jobData.status === 'failed'))
+
+  // Get artifact IDs from job data
+  const artifactIds = jobData?.artifact_ids ?? []
 
   return (
     <div className="mx-auto max-w-[1400px]">
-      {/* Empty / running layout: centered composer */}
-      {!submission && (
-        <div className="mx-auto flex min-h-[70vh] max-w-3xl flex-col justify-center py-8">
-          <div className="mb-8 flex flex-wrap items-center justify-center gap-2">
-            <Badge tone="green" icon="shieldCheck">
-              AIR-GAPPED &amp; ENCRYPTED
+      {/* Top Bar - Mode indicator */}
+      <div className="mb-4 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Badge tone="green" icon="shieldCheck">
+            AIR-GAPPED & ENCRYPTED
+          </Badge>
+          {simMode ? (
+            <Badge tone="purple" icon="alert">
+              DEMO MODE (Backend unreachable)
             </Badge>
-            {healthState === 'connected' ? (
-              <Badge tone="blue" icon="node">
-                Local Model Ready
-              </Badge>
-            ) : (
-              <Badge tone="gray" icon="node">
-                Local Model Starting
-              </Badge>
-            )}
-          </div>
+          ) : healthState === 'connected' ? (
+            <Badge tone="blue" icon="node">
+              Local Model Ready
+            </Badge>
+          ) : (
+            <Badge tone="gray" icon="node">
+              Local Model Starting
+            </Badge>
+          )}
+          {networkStatus && (
+            <Badge tone={networkStatus.external_connections_detected ? 'red' : 'green'} dot={false} icon={networkStatus.external_connections_detected ? 'alert' : 'check'}>
+              {networkStatus.external_connections_detected ? 'External connections detected' : '0 external connections'}
+            </Badge>
+          )}
+        </div>
+        {errors.length > 0 && (
+          <button
+            type="button"
+            className="btn-quiet btn text-xs text-danger"
+            onClick={clearAllErrors}
+          >
+            <Icon name="x" size={12} />
+            Dismiss all errors ({errors.length})
+          </button>
+        )}
+      </div>
 
+      {/* Error Banner */}
+      <ErrorBanner errors={errors} onDismiss={dismissError} />
+
+      {/* Main Layout */}
+      {(!simMode && !activeJobId) || (simMode && !simSubmission) ? (
+        // Empty state - centered composer
+        <div className="mx-auto flex min-h-[70vh] max-w-3xl flex-col justify-center py-8">
           <h2 className="text-center text-3xl font-semibold tracking-tight text-txt-hi">
             What are you working on?
           </h2>
@@ -128,57 +234,145 @@ export function Workbench({ healthState }) {
             telemetry leakage.
           </p>
 
-          <div className="mt-8">
-            <PromptComposer
-              value={prompt}
-              onChange={setPrompt}
-              onSubmit={handleSubmit}
-              onAttach={setFile}
-              attachedFile={file}
-            />
-          </div>
-
-          <div className="mt-8">
-            <QuickActions onUse={handleQuickAction} />
+          <div className="mt-8 w-full">
+            {simMode ? (
+              // Simulation composer
+              <div className="card overflow-hidden">
+                <textarea
+                  value={simPrompt}
+                  onChange={(e) => setSimPrompt(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                      e.preventDefault()
+                      handleSimSubmit()
+                    }
+                  }}
+                  rows={3}
+                  placeholder="Ask a question, analyze confidential files, or run local tasks…"
+                  className="w-full resize-none bg-transparent px-5 py-4 text-[15px] text-txt-hi placeholder:text-txt-dim focus:outline-none"
+                />
+                <div className="flex flex-wrap items-center gap-2 border-t border-line px-4 py-2.5">
+                  <input
+                    type="file"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] ?? null
+                      if (file) setSimFile({
+                        name: file.name,
+                        size: file.size,
+                        type: file.type.split('/').pop().toUpperCase() || 'FILE',
+                      })
+                      e.target.value = ''
+                    }}
+                    id="sim-file-input"
+                  />
+                  <label
+                    htmlFor="sim-file-input"
+                    className="btn-quiet btn text-txt-mid cursor-pointer"
+                  >
+                    <Icon name="paperclip" size={15} />
+                    Attach file
+                  </label>
+                  {simFile && (
+                    <span className="ml-2 text-sm text-txt-mid">
+                      {simFile.name} ({simFile.size})
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    className="btn-primary ml-auto h-9 w-9 !px-0 rounded-full flex items-center justify-center"
+                    onClick={handleSimSubmit}
+                    disabled={!simPrompt.trim()}
+                  >
+                    <Icon name="send" size={18} className="text-white" />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              // Real ChatPanel
+              <ChatPanel onJobCreated={handleJobCreated} conversationId={conversationId} />
+            )}
           </div>
         </div>
-      )}
-
-      {/* Result layout: main + right details sidebar */}
-      {submission && (
+      ) : (
+        // Active/Completed layout - three panels
         <div className="flex flex-col gap-6 xl:flex-row">
-          <div className="min-w-0 flex-1">
-            <div className="mb-5 flex items-center gap-2">
-              <Badge tone={running ? 'blue' : 'green'}>{running ? 'Running…' : 'Completed'}</Badge>
-              <span className="mono text-[11px] text-txt-dim">execution steps tracked in audit</span>
-            </div>
-            <TaskResult
-              submission={submission}
-              result={result}
-              running={running}
-              onFollowUp={handleFollowUp}
-            />
+          {/* Left: Chat or Trace */}
+          <div className="min-w-0 flex-1 xl:w-1/2">
+            {simMode ? (
+              // Simulation result view
+              <div className="card flex flex-col h-full">
+                <div className="p-4 border-b border-line flex items-center justify-between">
+                  <Badge tone={running ? 'blue' : 'green'}>{running ? 'Running…' : 'Completed'}</Badge>
+                  <span className="mono text-[11px] text-txt-dim">simulated execution</span>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4">
+                  {simSubmission && (
+                    <div className="space-y-4">
+                      <div className="p-3 rounded-lg bg-elevated">
+                        <p className="font-medium text-txt-hi">{simSubmission.prompt}</p>
+                        {simSubmission.file && (
+                          <p className="text-sm text-txt-dim mt-1">Attached: {simSubmission.file.name}</p>
+                        )}
+                      </div>
+                      {simResult && (
+                        <div className="space-y-3">
+                          <h3 className="text-lg font-semibold text-txt-hi">{simResult.title}</h3>
+                          <p className="text-txt-mid">{simResult.summary}</p>
+                          <div>
+                            <h4 className="text-sm font-medium text-txt-hi mb-2">Key points</h4>
+                            <ul className="space-y-1">
+                              {simResult.points.map((point, i) => (
+                                <li key={i} className="text-sm text-txt-mid flex items-start gap-2">
+                                  <Icon name="check" size={14} className="text-ok shrink-0 mt-0.5" />
+                                  {point}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                          <div className="pt-3 border-t border-line">
+                            <h4 className="text-sm font-medium text-txt-hi mb-2">Generated artifact</h4>
+                            <div className="flex items-center gap-3 p-3 rounded-lg border border-line bg-surface">
+                              <div className="p-2 rounded-lg bg-band-soft text-band">
+                                <Icon name="file" size={20} />
+                              </div>
+                              <div>
+                                <p className="font-medium text-txt-hi">{simResult.artifact.name}</p>
+                                <p className="text-xs text-txt-dim">{simResult.artifact.size} • {simResult.artifact.type}</p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              // Real ChatPanel (shows history for conversation)
+              <ChatPanel
+                onJobCreated={handleJobCreated}
+                conversationId={conversationId}
+              />
+            )}
           </div>
 
-          <aside className="w-full shrink-0 xl:w-[340px]" aria-label="Task details">
-            <TaskDetailsPanel
-              task={{
-                id: 'task-local',
-                name: submission.prompt.slice(0, 48),
-                description:
-                  submission.prompt.length > 48
-                    ? `${submission.prompt.slice(48, 160)}${submission.prompt.length > 160 ? '…' : ''}`
-                    : 'Local task execution',
-                started: '14:21:09',
-                completed: running ? '—' : '14:21:44',
-                duration: running ? '…' : '35s',
-                model: 'qwen3.5:9b',
-              }}
-              artifact={result?.artifact ?? { name: 'Summary_Report.md', size: '18 KB', type: 'MARKDOWN' }}
-              steps={steps}
-              running={running}
-            />
-          </aside>
+          {/* Right: Trace + Artifacts + RAG Evidence */}
+          <div className="w-full shrink-0 xl:w-1/2 space-y-4">
+            {/* Live Trace */}
+            <JobTracePanel jobId={simMode ? null : activeJobId} />
+
+            {/* Artifacts & RAG Evidence - stacked */}
+            <div className="space-y-4">
+              <ArtifactPanel
+                jobId={simMode ? null : activeJobId}
+                artifactIds={artifactIds}
+              />
+              <RagEvidencePanel
+                events={simMode ? [] : []} // TODO: pass real trace events when available
+              />
+            </div>
+          </div>
         </div>
       )}
     </div>
