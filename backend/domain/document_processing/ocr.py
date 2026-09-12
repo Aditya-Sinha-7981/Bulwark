@@ -324,25 +324,54 @@ def _region_type_from_layout(layout_type: str, bbox: List[List[int]]) -> str:
 
 
 def _normalize_bbox(raw: Any) -> List[List[int]]:
+    """Normalize one OCR polygon/bbox into a list of [x, y] int points.
+
+    Accepts numpy arrays (PaddleOCR 3.x `rec_polys`/`dt_polys` entries are
+    (4, 2) ndarrays, `rec_boxes` rows are (4,) or (N, 4)), nested python
+    sequences of [x, y] points, and flat sequences ([x1, y1, x2, y2, ...]
+    or a 4-number bounding box). Returns [] when nothing is interpretable —
+    never raises on unexpected shapes.
+    """
     if raw is None:
         return []
-    points = []
+    try:
+        import numpy as np
+
+        arr = np.asarray(raw, dtype=float)
+    except Exception:
+        arr = None
+
+    if arr is not None:
+        arr = np.squeeze(arr)
+        # (4,2)/(N,2) polygon → [x, y] points
+        if arr.ndim == 2 and arr.shape[1] == 2 and arr.shape[0] >= 2:
+            return [[int(x), int(y)] for x, y in arr]
+        # (N,4) batch of boxes or a (1,4) row → treat the first row as one
+        # [x_min, y_min, x_max, y_max] bounding box (this helper receives a
+        # single line's bbox; a batch reaching it means the caller fell back
+        # to rec_boxes wholesale).
+        if arr.ndim == 2 and arr.shape[1] == 4 and arr.size >= 4:
+            x1, y1, x2, y2 = arr.reshape(-1)[:4]
+            return [[int(x1), int(y1)], [int(x2), int(y1)], [int(x2), int(y2)], [int(x1), int(y2)]]
+        # (4,) bounding box or (8,) flat polygon (single line)
+        if arr.ndim == 1 and arr.size >= 4:
+            if arr.size == 4:
+                x1, y1, x2, y2 = arr
+                return [[int(x1), int(y1)], [int(x2), int(y1)], [int(x2), int(y2)], [int(x1), int(y2)]]
+            return [[int(arr[i]), int(arr[i + 1])] for i in range(0, arr.size - 1, 2)]
+        return []
+
+    # Non-numeric fallback: python sequences of points
     try:
         seq = list(raw)
     except TypeError:
         return []
-    if seq and not isinstance(seq[0], (list, tuple)):
-        # Flat [x1,y1,x2,y2,...] or bounding box [x_min,y_min,x_max,y_max]
-        nums = [int(float(x)) for x in seq]
-        if len(nums) == 4:
-            x1, y1, x2, y2 = nums
-            return [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
-        for i in range(0, len(nums) - 1, 2):
-            points.append([nums[i], nums[i + 1]])
-        return points
+    points: List[List[int]] = []
     for point in seq:
-        if isinstance(point, (list, tuple)) and len(point) >= 2:
+        try:
             points.append([int(float(point[0])), int(float(point[1]))])
+        except (TypeError, IndexError, ValueError):
+            continue
     return points
 
 

@@ -3,10 +3,6 @@
 Implements the contract defined in docs/capabilities.md#generate_code.
 Validates input, calls Model Runtime `code_generation` resource,
 shapes output, validates output. No filesystem, no network, no execution.
-
-NOTE: The Model Runtime `code_generation` interface (backend/domain/model_runtime/runtime.py)
-is not yet implemented (Task 8). This executor uses a stub that can be swapped
-when the real Model Runtime is available. See logs/feature-sandbox.md "Open issues / known gaps".
 """
 
 from __future__ import annotations
@@ -15,7 +11,12 @@ from typing import Any
 
 from backend.config import settings
 from backend.domain.capabilities.registry import get_registry
+import re
+
+from backend.domain.model_runtime.runtime import runtime as model_runtime
 from backend.models.schemas import GenerateCodeInput, GenerateCodeOutput
+
+_FENCE_RE = re.compile(r"```(?:python|py)?\s*\n(.*?)```", re.DOTALL)
 
 
 class CapabilityValidationError(Exception):
@@ -42,8 +43,24 @@ EXPLANATION:
 <your brief explanation here>"""
 
 
+def _extract_fenced_code(code: str) -> str:
+    """Strip markdown fences the model may embed inside its code output."""
+    if "```" not in code:
+        return code.strip()
+    blocks = _FENCE_RE.findall(code)
+    if blocks:
+        return "\n\n".join(block.strip() for block in blocks)
+    # Unbalanced fences — drop the markers themselves
+    return code.replace("```python", "").replace("```py", "").replace("```", "").strip()
+
+
 def _parse_model_response(response_text: str) -> tuple[str, str]:
-    """Parse the model response into code and explanation."""
+    """Parse the model response into code and explanation.
+
+    Handles the instructed CODE:/EXPLANATION: format, and markdown-fenced
+    responses — coder models frequently emit ```python blocks despite the
+    format instructions (observed live 2026-09-12 on qwen2.5-coder:7b).
+    """
     code = ""
     explanation = ""
 
@@ -68,10 +85,22 @@ def _parse_model_response(response_text: str) -> tuple[str, str]:
         elif in_explanation:
             explanation_lines.append(line)
 
-    code = "\n".join(code_lines).strip()
+    code = _extract_fenced_code("\n".join(code_lines))
     explanation = "\n".join(explanation_lines).strip()
 
-    # Fallback: if parsing failed, treat entire response as code
+    # Fallback: no CODE: marker — take fenced block(s) as code, surrounding
+    # prose as explanation
+    if not code:
+        fenced = _FENCE_RE.findall(response_text)
+        if fenced:
+            code = "\n\n".join(block.strip() for block in fenced)
+            prose = _FENCE_RE.sub("", response_text).strip()
+            prose = prose.replace("EXPLANATION:", "").strip()
+            explanation = prose or "Generated code for the described task."
+        else:
+            code = response_text.strip()
+            explanation = "Generated code for the described task."
+
     if not code:
         code = response_text.strip()
         explanation = "Generated code for the described task."
@@ -79,76 +108,15 @@ def _parse_model_response(response_text: str) -> tuple[str, str]:
     return code, explanation
 
 
-class ModelRuntimeStub:
-    """Stub for Model Runtime code_generation call — replace with real implementation from Task 8."""
+async def _call_model_runtime(prompt: str, job_id: str | None = None) -> str:
+    """Call the Model Runtime's `code_generation` resource (real Ollama call).
 
-    @staticmethod
-    async def generate(resource_type: str, prompt: str) -> str:
-        """
-        Generate code using the code_generation resource.
-
-        This is a STUB. The real implementation (Task 8) will:
-        1. Resolve resource_type "code_generation" to model via Resource/Model Configuration Registry
-        2. Call Ollama via Model Runtime module
-        3. Return the generated text
-
-        For now, returns a simple working example based on the task description.
-        """
-        if resource_type != "code_generation":
-            raise ValueError(f"Expected resource_type 'code_generation', got '{resource_type}'")
-
-        # Simple heuristic-based stub for demo/testing
-        task_lower = prompt.lower()
-
-        if "hello" in task_lower or "print" in task_lower:
-            return """CODE:
-print("Hello, World!")
-EXPLANATION:
-Prints a simple greeting to stdout."""
-
-        if "factorial" in task_lower:
-            return """CODE:
-def factorial(n):
-    if n <= 1:
-        return 1
-    return n * factorial(n - 1)
-
-result = factorial(5)
-print(f"5! = {result}")
-EXPLANATION:
-Computes 5! recursively and prints the result."""
-
-        if "fibonacci" in task_lower or "fib" in task_lower:
-            return """CODE:
-def fibonacci(n):
-    a, b = 0, 1
-    for _ in range(n):
-        a, b = b, a + b
-    return a
-
-for i in range(10):
-    print(fibonacci(i))
-EXPLANATION:
-Prints the first 10 Fibonacci numbers."""
-
-        if "sum" in task_lower and "range" in task_lower:
-            return """CODE:
-total = sum(range(1, 101))
-print(f"Sum of 1 to 100 = {total}")
-EXPLANATION:
-Calculates and prints the sum of integers from 1 to 100."""
-
-        # Default: simple calculation
-        return """CODE:
-result = 2 + 2
-print(f"2 + 2 = {result}")
-EXPLANATION:
-Simple arithmetic calculation demonstrating the sandbox."""
-
-
-async def _call_model_runtime(prompt: str) -> str:
-    """Call the Model Runtime for code_generation. Swappable for real implementation."""
-    return await ModelRuntimeStub.generate("code_generation", prompt)
+    Emits `model_invoked` audit events with the job attribution
+    (`docs/audit.md`), and the call resolves through the Resource/Model
+    Configuration Registry — no model names here (AGENTS.md §6 rule 3).
+    """
+    result = await model_runtime.generate("code_generation", prompt, job_id=job_id)
+    return result.text
 
 
 def validate_input(arguments: dict[str, Any]) -> GenerateCodeInput:
@@ -205,7 +173,7 @@ async def execute_generate_code(
     prompt = _build_generation_prompt(validated_input.task_description)
 
     try:
-        model_response = await _call_model_runtime(prompt)
+        model_response = await _call_model_runtime(prompt, job_id=job_id)
     except Exception as e:
         raise CapabilityValidationError(f"Model Runtime call failed: {e}")
 

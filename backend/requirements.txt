@@ -9,7 +9,11 @@ python-docx
 psutil
 
 openpyxl
-paddleocr
+# OCR stack — pinned: unpinned paddleocr resolved to the 2.x line on a fresh
+# Python 3.12 venv (2026-09-12), breaking the 3.x-era OCR integration; and
+# paddlepaddle (a real paddleocr runtime dependency) was silently absent.
+paddleocr==3.7.0
+paddlepaddle>=3.0
 pypdfium2
 chromadb
 

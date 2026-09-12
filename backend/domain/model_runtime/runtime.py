@@ -97,7 +97,9 @@ class OllamaRuntime:
             resource_type: One of "reasoning", "code_generation", "vision".
             prompt: The input prompt.
             images: Optional list of image bytes (only used for vision).
-            options: Optional dict of Ollama generation options (filtered to allowed keys).
+            options: Optional dict of Ollama generation options (filtered to
+                allowed keys). `num_ctx` defaults to the resource entry's
+                `context_window` (`config/resources.yaml`) when not supplied.
 
         Returns:
             GenerationResult with text, token counts, timing, and model info.
@@ -111,6 +113,14 @@ class OllamaRuntime:
         model = entry.model
         keep_alive = entry.keep_alive
 
+        # Enforce the resource's declared context window: Ollama's default
+        # num_ctx (4096) silently truncates longer prompts (observed live —
+        # Ollama runner.go "truncating input prompt" warning). A
+        # caller-passed num_ctx still wins.
+        options = dict(options) if options else {}
+        if entry.context_window is not None:
+            options.setdefault("num_ctx", entry.context_window)
+
         payload = {
             "model": model,
             "prompt": prompt,
@@ -118,10 +128,9 @@ class OllamaRuntime:
             "keep_alive": keep_alive,
         }
 
-        if options:
-            filtered = {k: v for k, v in options.items() if k in ALLOWED_GENERATE_OPTIONS}
-            if filtered:
-                payload["options"] = filtered
+        filtered = {k: v for k, v in options.items() if k in ALLOWED_GENERATE_OPTIONS}
+        if filtered:
+            payload["options"] = filtered
 
         if images:
             payload["images"] = [base64.b64encode(img).decode() for img in images]
@@ -179,6 +188,20 @@ class OllamaRuntime:
                 job_id=job_id,
             )
             raise ModelRuntimeError(f"Ollama error {e.response.status_code}: {e.response.text}") from e
+        except httpx.ReadTimeout as e:
+            await emit(
+                "error",
+                "model_runtime",
+                {
+                    "component": "model_runtime",
+                    "message": f"Request exceeded {settings.app.ollama.request_timeout_seconds}s read timeout",
+                    "context": {"resource_type": resource_type},
+                },
+                job_id=job_id,
+            )
+            raise ModelRuntimeError(
+                f"Ollama request exceeded {settings.app.ollama.request_timeout_seconds}s read timeout"
+            ) from e
 
     async def embed(
         self,
@@ -193,6 +216,8 @@ class OllamaRuntime:
         Args:
             resource_type: Must be "embedding".
             text: Single string or list of strings to embed.
+            job_id: Job UUID for audit attribution, or None for
+                Job-independent background work (e.g. KB ingestion).
 
         Returns:
             EmbeddingResult with vectors, timing, and model info.
@@ -267,6 +292,20 @@ class OllamaRuntime:
                 job_id=job_id,
             )
             raise ModelRuntimeError(f"Ollama error {e.response.status_code}: {e.response.text}") from e
+        except httpx.ReadTimeout as e:
+            await emit(
+                "error",
+                "model_runtime",
+                {
+                    "component": "model_runtime",
+                    "message": f"Request exceeded {settings.app.ollama.request_timeout_seconds}s read timeout",
+                    "context": {"resource_type": resource_type},
+                },
+                job_id=job_id,
+            )
+            raise ModelRuntimeError(
+                f"Ollama request exceeded {settings.app.ollama.request_timeout_seconds}s read timeout"
+            ) from e
 
     async def is_model_loaded(self, model_identifier: str) -> bool:
         """Return whether the specified model is currently loaded in Ollama.
@@ -346,7 +385,12 @@ class OllamaRuntime:
         capability_execution_id: Optional[str],
         job_id: Optional[str] = None,
     ) -> None:
-        """Emit model_invoked event and write model_executions row."""
+        """Emit model_invoked event and write model_executions row.
+
+        job_id may be None for Job-independent background invocations
+        (e.g. KB ingestion embeddings) — the audit event is still emitted,
+        with job_id=None (`docs/audit.md`).
+        """
         await emit(
             event_type="model_invoked",
             component="model_runtime",

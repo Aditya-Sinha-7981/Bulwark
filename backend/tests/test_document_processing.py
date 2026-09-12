@@ -41,6 +41,8 @@ from domain.document_processing.ocr import (
     OCR_PASS_TIMEOUT_SECONDS,
     OCRResult,
     OCRRegion,
+    OCREngine,
+    _normalize_bbox,
     _region_type_from_layout,
     extract_pdf_pages,
     run_ocr,
@@ -1189,6 +1191,66 @@ class TestContractSurface:
             with pytest.raises(UnreadableDocumentError):
                 await process_pdf_document(doc_id, "fake.pdf")
 
+
+class TestNormalizeBboxPaddle3x:
+    """Regression: PaddleOCR 3.x returns numpy arrays for polys
+    (rec_polys entries are (4,2) ndarrays, rec_boxes is (N,4)) — the old
+    parser raised "only length-1 arrays can be converted to Python scalars"
+    on every real extraction (observed live 2026-09-12, Workflow A)."""
+
+    def test_numpy_polygon_4x2(self):
+        import numpy as np
+
+        poly = np.array([[24, 9], [695, 9], [695, 45], [24, 45]])
+        bbox = _normalize_bbox(poly)
+        assert bbox == [[24, 9], [695, 9], [695, 45], [24, 45]]
+
+    def test_numpy_boxes_nx4_takes_first_row(self):
+        import numpy as np
+
+        boxes = np.array([[10, 20, 30, 40], [50, 60, 70, 80]])
+        bbox = _normalize_bbox(boxes)
+        assert bbox == [[10, 20], [30, 20], [30, 40], [10, 40]]
+
+    def test_numpy_flat_box_4(self):
+        import numpy as np
+
+        bbox = _normalize_bbox(np.array([10.0, 20.0, 30.0, 40.0]))
+        assert bbox == [[10, 20], [30, 20], [30, 40], [10, 40]]
+
+    def test_python_nested_points(self):
+        bbox = _normalize_bbox([[1, 2], [3, 4]])
+        assert bbox == [[1, 2], [3, 4]]
+
+    def test_python_flat_four(self):
+        bbox = _normalize_bbox([1.0, 2.0, 3.0, 4.0])
+        assert bbox == [[1, 2], [3, 2], [3, 4], [1, 4]]
+
+    def test_uninterpretable_returns_empty_not_raises(self):
+        assert _normalize_bbox(None) == []
+        assert _normalize_bbox("not-a-box") == []
+        assert _normalize_bbox([]) == []
+
+    def test_parse_predict_mapping_with_numpy_polys(self):
+        """Full 3.x-shaped result parses without scalar-conversion errors."""
+        import numpy as np
+
+        engine = OCREngine()
+        raw = {
+            "rec_texts": ["TRISHUL THERMAL POWER STATION", "8.3 mm/s RMS"],
+            "rec_scores": [0.99, 0.97],
+            "rec_polys": [
+                np.array([[24, 9], [695, 9], [695, 45], [24, 45]]),
+                np.array([[30, 100], [400, 100], [400, 130], [30, 130]]),
+            ],
+        }
+        regions = engine._parse_predict_mapping(raw)
+        assert len(regions) == 2
+        assert regions[0].text == "TRISHUL THERMAL POWER STATION"
+        assert regions[0].confidence == pytest.approx(0.99)
+        assert regions[0].bbox == [[24, 9], [695, 9], [695, 45], [24, 45]]
+        assert regions[1].text == "8.3 mm/s RMS"
+        assert regions[1].bbox[0] == [30, 100]
 
 
 if __name__ == "__main__":

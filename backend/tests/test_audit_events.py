@@ -115,6 +115,43 @@ class TestEmitFunction:
         assert rows[0]["job_id"] is None
 
     @pytest.mark.asyncio
+    async def test_emit_model_invoked_without_job_id_allowed(self, temp_db):
+        """emit() with model_invoked and job_id=None succeeds (Job-independent
+        background invocation — e.g. KB ingestion embeddings, docs/audit.md)."""
+        payload = {
+            "resource_type": "embedding",
+            "model_identifier": "test-embed-model",
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "duration_ms": 42,
+        }
+        event = await emit("model_invoked", "model_runtime", payload, job_id=None)
+
+        assert event["event_id"] is not None
+        assert event["job_id"] is None
+        assert event["event_type"] == "model_invoked"
+        assert event["payload"] == payload
+
+        # Queryable by event_type since job_id is None
+        rows = audit_events.query_by_event_type("model_invoked")
+        assert len(rows) == 1
+        assert rows[0]["job_id"] is None
+        assert json.loads(rows[0]["payload"]) == payload
+
+    @pytest.mark.asyncio
+    async def test_emit_model_invoked_with_job_id_allowed(self, temp_db, sample_job_id):
+        """emit() with model_invoked and a job_id also succeeds (in-Job path)."""
+        payload = {
+            "resource_type": "reasoning",
+            "model_identifier": "test-model",
+            "prompt_tokens": 10,
+            "completion_tokens": 20,
+            "duration_ms": 100,
+        }
+        event = await emit("model_invoked", "model_runtime", payload, job_id=sample_job_id)
+        assert event["job_id"] == sample_job_id
+
+    @pytest.mark.asyncio
     async def test_emit_invalid_event_type_raises(self, temp_db, sample_job_id):
         """emit() with invalid event_type raises ValueError and persists nothing."""
         with pytest.raises(ValueError, match="Invalid event_type"):
@@ -292,6 +329,62 @@ class TestSSERoute:
         assert response.media_type == "text/event-stream"
         assert "Cache-Control" in response.headers
         assert "Connection" in response.headers
+
+    @pytest.mark.asyncio
+    async def test_sse_replay_does_not_terminate_on_mid_job_error_event(self, temp_db, sample_job_id):
+        """A mid-job `error` event (recoverable tool failure — docs/audit.md)
+        must NOT end the SSE stream; only `job_completed` is terminal.
+
+        Regression: the replay scan treated `error` as terminal, so a late
+        joiner on a Job that hit-and-recovered from a tool failure got the
+        replayed history and an immediately-closed stream — no live events
+        ever arrived (observed 2026-09-12 during frontend contract audit)."""
+        from api.jobs import stream_job_events
+        from fastapi import Request
+        from starlette.datastructures import Headers
+
+        await emit(
+            "error",
+            "test",
+            {"component": "test", "message": "recoverable tool failure", "context": {}},
+            job_id=sample_job_id,
+        )
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": f"/api/v1/jobs/{sample_job_id}/events",
+            "query_string": b"replay=true",
+            "headers": Headers({}).raw,
+        }
+
+        async def never_receive():
+            # Simulate a client that never sends more ASGI messages — the
+            # live loop's is_disconnected() await blocks, proving the stream
+            # is still open rather than terminated.
+            await asyncio.Event().wait()
+
+        request = Request(scope, receive=never_receive)
+        response = await stream_job_events(job_id=sample_job_id, request=request, replay=True)
+
+        iterator = response.body_iterator.__aiter__()
+        error_seen = False
+        terminated = False
+        for _ in range(3):
+            try:
+                chunk = await asyncio.wait_for(iterator.__anext__(), timeout=1)
+                event = json.loads(chunk.removeprefix("data: ").strip())
+                if event["event_type"] == "error":
+                    error_seen = True
+            except asyncio.TimeoutError:
+                break  # still open, waiting on the live queue — the fix works
+            except asyncio.CancelledError:
+                break  # our probe was cancelled mid-await — the generator did NOT end on its own
+            except StopAsyncIteration:
+                terminated = True  # generator returned — the old bug's exact behavior
+                break
+        assert error_seen, "replayed error event never arrived"
+        assert not terminated, "SSE stream terminated after replaying a mid-job error event"
 
 
 class TestEventTypeEnum:

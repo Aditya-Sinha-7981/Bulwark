@@ -2,19 +2,19 @@ resources:
   reasoning:
     model: qwen3.5:9b
     runtime: ollama
-    context_window: 128000
+    context_window: 16384    # passed to Ollama as options.num_ctx by Model Runtime; 128000 was declared but never enforced (Ollama default 4096) and its KV cache would not fit the M4 Pro 24GB budget
     keep_alive: "5m"
 
   code_generation:
     model: qwen2.5-coder:7b
     runtime: ollama
-    context_window: 32768
+    context_window: 16384    # same enforcement note; coding prompts are small, 16k gives ample headroom at modest KV-cache cost
     keep_alive: "5m"
 
   vision:
     model: qwen3.5:9b
     runtime: ollama
-    context_window: 256000
+    context_window: 16384    # same enforcement note; OCR-scale image token budgets fit comfortably
     keep_alive: "5m"
 
   embedding:

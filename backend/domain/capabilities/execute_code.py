@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.config import settings
-from domain.capabilities.registry import get_registry
+from backend.domain.capabilities.registry import get_registry
 from backend.domain.sandbox.docker_executor import DockerUnavailableError, run_in_sandbox, SandboxResult
 from backend.models.schemas import ExecuteCodeInput, ExecuteCodeOutput
 from backend.utils.ids import new_id

@@ -1,8 +1,8 @@
 # logs/feature-job-system.md
 
-> Feature / workstream: `job-system`  (branches: `feature/job-system`, …)
+> Feature / workstream: `job-system`  (branches: `feature/job-system`, `fix/job-attachment-message-enrichment`, …)
 > Started: 2026-09-05 by nemotron-3-ultra-free
-> Status: completed
+> Status: in-progress (Task 5 complete; attachment-note fix on `fix/job-attachment-message-enrichment` pending commit)
 
 ## Goal
 Implement the Job/JobStep lifecycle and the Job HTTP API: create a Job, transition it `created → running → (completed | failed)`, record steps, and expose `POST /api/v1/jobs`, `GET /api/v1/jobs/{id}`, `GET /api/v1/jobs/{id}/trace`, and complete the `GET /api/v1/jobs/{id}/events` SSE route. Drive the loop with a **stub Orchestrator that always responds directly** — no Policy, no capabilities, no real Orchestrator yet.
@@ -68,3 +68,54 @@ Implement the Job/JobStep lifecycle and the Job HTTP API: create a Job, transiti
 - SSE endpoint handles replay=true with terminal events correctly
 - Error format matches FastAPI's default (wrapped in `detail`)
 - No locked contracts violated (AGENTS.md §6)
+
+---
+
+### Entry 4 — 2026-09-12 11:09 — document_ids now reach the Orchestrator via an attachment note on the user message (branch `fix/job-attachment-message-enrichment`)
+
+**What changed:**
+- `backend/domain/job_manager/manager.py` — `create_job()` (`manager.py:~200-243`): when `document_ids` is non-empty, the stored user message content becomes `"{input_message}\n\n[Attached document(s): document_id=<uuid>, ...]"`; with no ids, the message is stored exactly as before. Docstring rewritten — the old one claimed the Orchestrator "asks for their contents via extract_document", which was impossible because the ids were silently dropped (the parameter was accepted and never used). Job row and `job_created` audit payload keep the raw `input_message` (no `docs/audit.md`/`docs/data-model.md` changes — Option A, user-approved over a Job-table column).
+- `backend/tests/test_job_lifecycle.py` — added `test_create_job_with_document_ids_enriches_user_message` (ids present in conversation history, raw message in Job row and event) and `test_create_job_without_document_ids_keeps_message_unmodified` (no note when empty).
+
+**Why:** Found live during the manual test pass (Phase 4, job `85e5b5c4`, 2026-09-12): Workflow A's `POST /jobs` carried the correct `document_ids`, but the Orchestrator responded "I require the specific document_id… Please provide the document_id" and terminated without invoking anything. Root cause: `manager.create_job(conversation_id, input_message, document_ids)` accepted `document_ids` and never persisted or forwarded them — `jobs_repo.create_job()` is called without them, the Job table has no `document_ids` column (`docs/data-model.md:30-40`), `OrchestratorContext` has no attachment field, and the only channel into the Orchestrator's prompt is conversation history. Meanwhile `docs/demo.md:14` requires the Orchestrator to propose `extract_document` *with* the uploaded `document_id`, and `execute_code` resolves `input_files` from proposal arguments — so capabilities were designed to receive ids from the Orchestrator, but nothing ever delivered them. User approved Option A (enrich the stored user message) over Option B (Job column + `OrchestratorContext` field + prompt-builder block, which would require updating `docs/data-model.md` first per AGENTS.md §6.13); Option A can be upgraded to B later without behavioral change.
+
+**How to verify:**
+- `backend/.venv/bin/python -m pytest backend/tests/test_job_lifecycle.py -q` → 10 passed.
+- Full non-integration suite → 495 passed; only failure is the pre-existing environmental `test_job_manager_dispatch.py::test_executor_error_is_failed_tool_result_not_crash` (documented in `logs/feature-orchestrator.md` Entry 4 / `logs/feature-model-runtime.md` Entry 7).
+- Live: upload a document, `POST /jobs` with `document_ids: ["<id>"]`, check Get Job Trace — the Orchestrator should now propose `extract_document` with that id instead of asking for it.
+
+**Open issues / known gaps:**
+- The attachment note is visible in conversation history (Get Conversation shows it) — accepted trade-off of Option A.
+- Option B (Job column + context field) remains the structural cleanup candidate post-SIH; if done, `docs/data-model.md` must be updated first.
+
+**Decisions made:**
+- Enrich the message row, not the Job row / `job_created` payload — audit event contract (`docs/audit.md` `job_created` payload keys) and Job schema stay untouched.
+- Note format is deterministic: `[Attached document(s): document_id=<id>, ...]` on its own line after a blank line — the Orchestrator can copy ids into `extract_document`/`execute_code` arguments verbatim.
+
+**Supersedes / references:** Corrects the misleading docstring introduced with Task 5's `create_job` (Entry 2); no behavioral entry contradicted.
+
+---
+
+## Links
+
+- Related branches / logs: `fix/model-runtime-num-ctx-and-timeout` (prior three fixes, committed), `logs/feature-orchestrator.md` (identical-proposal guard), `logs/feature-rag.md`, `logs/feature-model-runtime.md`
+- Doc references: `docs/demo.md`, `docs/agent.md`, `docs/api.md`, `docs/data-model.md`, `docs/capabilities.md`
+---
+
+### Entry 5 — 2026-09-12 13:40 — SSE stream treated mid-job `error` events as terminal (branch `fix/model-runtime-num-ctx-and-timeout`)
+
+**What changed:**
+- `backend/api/jobs.py` — `stream_job_events`'s replay scan and live loop now terminate **only** on `event_type == "job_completed"` (was `in ("job_completed", "error")`). In-source comment explains the audit contract.
+- `backend/tests/test_audit_events.py` — new `TestSSERoute::test_sse_replay_does_not_terminate_on_mid_job_error_event`: seeds a Job with a mid-job `error` event (recoverable tool failure), opens the SSE generator directly, asserts the replayed error arrives and the stream stays open (per-chunk outcome handling: TimeoutError/CancelledError → open; StopAsyncIteration → the old bug).
+
+**Why:** Found during the pre-merge frontend↔backend contract audit (2026-09-12). `docs/audit.md` defines `error` as a mid-job, recoverable event (tool failures, background-process failures) — Jobs continue after them; only `job_completed` (payload.status completed|failed) terminates a Job, and the `finally` block in `manager.run_job` always emits it. The old replay scan meant **any late joiner on a Job whose history contained a mid-job error got replay + an immediately-closed stream** — live events never arrived. The same wrong assumption existed independently in the frontend (`useJobEvents` TERMINAL_EVENT_TYPES, fixed on the frontend side). Confirmed live today: jobs `a28d1a22`, `b806d722`, `24e02e8e` all emitted mid-job `error` events and then completed.
+
+**How to verify:**
+- `backend/.venv/bin/python -m pytest backend/tests/test_audit_events.py -q` → 17 passed.
+- Full non-integration suite → 509 passed, 0 failed (the previously-flaky environmental `test_executor_error_is_failed_tool_result_not_crash` passed this run).
+- Manual: open SSE on any completed job containing a mid-job error → replay streams fully and the connection behaves per job state.
+
+**Open issues / known gaps:** None for this fix. Frontend-side duplicates/terminal handling tracked on the frontend fix branch.
+
+**Supersedes / references:** None — corrects the original Task 5-era SSE implementation (Entry 2/3).
+

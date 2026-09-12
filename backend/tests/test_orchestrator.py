@@ -137,6 +137,18 @@ class TestPromptBuilder:
         prompt = build_system_prompt(registry, MAX_JOB_STEPS)
         assert "invoke_capability" in prompt
         assert "respond" in prompt
+
+    def test_prompt_includes_document_deliverables_rule(self, registry):
+        """Document requests must route through create_docx/create_xlsx with
+        structured arguments, not inline markdown in the final respond —
+        otherwise artifact_ids stays empty (observed live, Workflow A,
+        2026-09-12: a perfect approval note but no create_docx proposal)."""
+        prompt = build_system_prompt(registry, MAX_JOB_STEPS)
+        assert "Document Deliverables Rule" in prompt
+        assert "create_docx" in prompt
+        assert "create_xlsx" in prompt
+        assert "artifact_id" in prompt
+        assert "fall back" in prompt.lower()
         assert '"action"' in prompt
 
     def test_prompt_includes_explicit_retrieval_rule(self, registry):

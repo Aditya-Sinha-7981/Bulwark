@@ -169,3 +169,71 @@ python -m pytest tests/test_document_processing.py -q
 - `git diff --check` clean.
 - Only Task 11 files modified (9 modified, 2 new).
 - Ready for independent review.
+---
+
+### Entry 6 — 2026-09-12 11:35 — paddlepaddle was never installed; venv recreated on Python 3.12, OCR stack pinned (branch `fix/model-runtime-num-ctx-and-timeout`)
+
+**What changed:**
+- `backend/requirements.txt` — `paddleocr` → `paddleocr==3.7.0`, added `paddlepaddle>=3.0` (a real runtime dependency pip had not pulled on its own).
+- `.python-version` (new, repo root) — `3.12`, so uv/pyenv resolve a compatible interpreter for anyone setting up fresh.
+- Environment (not repo): `backend/.venv` recreated on CPython 3.12.8 via uv (was Python 3.14.7) and reinstalled from requirements + paddlepaddle + paddleocr 3.7.0. Installed: paddleocr 3.7.0, paddle 3.3.1.
+
+**Why:** Found live during the manual test pass (Phase 4, job `b806d722`, 2026-09-12): the Orchestrator correctly proposed `extract_document` with the right `document_id` (the attachment-note fix works), but the executor failed immediately: `ExtractDocumentError: OCR failed: Engine 'paddle_static' is unavailable because dependency 'paddlepaddle' is not installed.` Root cause chain: (1) the venv ran Python 3.14.7 — paddlepaddle publishes no wheels for 3.14 (`pip install paddlepaddle --dry-run` → "from versions: none"), so the engine was absent while the paddleocr *wrapper* package was present; (2) recreating the venv on Python 3.12 then resolved *unpinned* `paddleocr` to 2.10.0 (2.x API, not what `backend/domain/document_processing/ocr.py` was written against — the previous env had 3.7.0), so the OCR stack is now pinned.
+
+**How to verify:**
+- `backend/.venv/bin/python -c "import paddleocr, paddle; print(paddleocr.__version__, paddle.__version__)"` → `3.7.0 3.3.1`.
+- Full non-integration suite on the new venv → 495 passed; only failure is the pre-existing environmental `test_job_manager_dispatch.py::test_executor_error_is_failed_tool_result_not_crash`.
+- Live: restart backend, re-run Workflow A — the first `extract_document` call will additionally download PP-OCR models (one-time, local); check the trace for a succeeded `capability_invocation` step.
+
+**Open issues / known gaps:**
+- None blocking. Note: first OCR run downloads PaddleOCR model weights into the local model cache — allowed (local model assets, not external egress at runtime beyond the one-time model pull; same trust class as pulling Ollama models).
+
+**Decisions made:**
+- Python 3.12 (not 3.13) for the venv — widest wheel support across paddle/chroma/other ML deps while satisfying "3.11+" (`AGENTS.md` §8).
+- Pinned `paddleocr==3.7.0` (matches the version the OCR integration was built against; unpinned resolved to 2.10.0 on the fresh venv) and added `paddlepaddle>=3.0`. The rest of `requirements.txt` stays unpinned, matching its existing style.
+
+**Supersedes / references:** None — environment/dependency correction on top of Entry 5; the code itself is untouched.
+
+
+---
+
+### Entry 7 — 2026-09-12 11:55 — OCR cold-start vs the 60s pass timeout; models now cached, no code change (branch `fix/model-runtime-num-ctx-and-timeout`)
+
+**What changed:** Repo: nothing. Environment: PP-OCR model weights are now cached in `~/.paddlex/official_models/` (PP-OCRv6_medium_det, PP-OCRv6_medium_rec) and a manual pre-warm verified real timings.
+
+**Why:** After the Python 3.12 venv fix (Entry 6), Workflow A's `extract_document` failed with `ExtractDocumentError: OCR pass exceeded 60s` (job `ecf24ba0`, 2026-09-12). Cause: `OCR_PASS_TIMEOUT_SECONDS = 60` (`backend/domain/document_processing/ocr.py:19`) wraps `run_ocr` *including* `OCREngine._initialize()` — and the very first initialization downloads the PP-OCR model weights, which cannot fit in 60s. The download did complete anyway: `asyncio.wait_for(asyncio.to_thread(run_ocr, ...))` cannot cancel a running thread, so the timed-out OCR threads kept executing in the background and populated the cache. Measured after warm-up (pre-warm script, same uploaded report): init 0.9s, first inference 14.7s, warm inference 14.2s — well within the 60s pass cap and the 120s `extract_document.timeout_seconds` total budget.
+
+**How to verify:**
+- `ls ~/.paddlex/official_models/` shows the PP-OCRv6 model dirs.
+- Re-run Workflow A in a FRESH conversation: the capability step should succeed (~15-20s) with no timeout error event.
+
+**Open issues / known gaps:**
+- Cold machine = race again: a fresh checkout/demo machine downloading PP-OCR weights inside a live 60s-capped job will time out. Pre-warm before the demo (one `PaddleOCR(...).predict(tiny_image)` run in the venv), or raise `OCR_PASS_TIMEOUT_SECONDS` if a code fix is preferred. Flagged for the SIH demo checklist — not changed now.
+- Operational hygiene: the same fresh-conversation advice applies — failed OCR history in a conversation biases the model into surrendering ("paste the text instead") on later attempts (observed in jobs `335034fe` and `ecf24ba0`, both in conversation `7ec54afb`).
+
+**Decisions made:** No code change — warm timings make the 60s cap correct; the fix is pre-warming the model cache before first use on a cold machine.
+
+**Supersedes / references:** Follows Entry 6 (venv fix); completes the Phase 4 unblock.
+
+
+---
+
+### Entry 8 — 2026-09-12 12:20 — _normalize_bbox crashed on PaddleOCR 3.x numpy polys (branch `fix/model-runtime-num-ctx-and-timeout`)
+
+**What changed:**
+- `backend/domain/document_processing/ocr.py` — `_normalize_bbox()` rewritten to be shape-agnostic: converts input via `np.asarray(..., dtype=float)` first and handles (4,2)/(N,2) polygons, (N,4)/(1,4) boxes, and (4,)/(8,) flat forms; python-sequence fallback retained; uninterpretable input returns `[]` instead of raising.
+- `backend/tests/test_document_processing.py` — new `TestNormalizeBboxPaddle3x` class (7 tests): numpy (4,2) poly, (N,4) batch, (4,) flat box, nested python points, flat python 4, uninterpretable→empty, and a full `_parse_predict_mapping` pass with a real 3.x-shaped result (numpy polys). Imports gained `OCREngine`, `_normalize_bbox`.
+
+**Why:** Found live (job `242126e8`, 2026-09-12, Phase 4, fresh conversation): `extract_document` failed with `OCR failed: only length-1 arrays can be converted to Python scalars` on every real image. Probed the actual PaddleOCR 3.7 result (`probe` script): the per-page item is an `OCRResult` object whose `rec_polys` is a **list of numpy (4,2) ndarrays** (`rec_boxes`: (57,4) ndarray). `_normalize_bbox` did `list(raw)` → rows are ndarrays → `seq[0]` is not list/tuple → took the "flat" branch → `int(float(x))` on a (2,) ndarray → ValueError. The wrapper was written for 2.x python-list shapes. Note the parser branch selection itself was correct — `_as_mapping` handled the OCRResult object and found `rec_texts`; only bbox normalization was broken. Also confirmed on this build: no `layout_det_res` key exists, so layout-classification escalation signals can't fire — matching the corpus README §15 caveat (confidence/completeness carry escalation).
+
+**How to verify:**
+- `backend/.venv/bin/python -m pytest backend/tests/test_document_processing.py -q` → 50 passed (includes the 7 new regression tests).
+- Full non-integration suite → 502 passed; only failure remains the pre-existing environmental `test_job_manager_dispatch.py::test_executor_error_is_failed_tool_result_not_crash`.
+- Live end-to-end on the real uploaded report (pre-fix-failed document `6f774167`): `run_ocr(...)` → 57 regions, mean confidence 0.997, ~14s, and all ground-truth readings present (`PIR-2026-0842`, `CWP-204A`, `8.3`, `5.6`, `64`, `68`) — clean scan correctly above the 0.75 escalation threshold, no vision escalation expected.
+
+**Open issues / known gaps:** None for this fix.
+
+**Decisions made:** Shape-agnostic numpy-first normalization rather than type-sniffing (`isinstance(seq[0], (list, tuple))`) — paddle's return types change between versions/keys; converting through `asarray` + explicit shape handling is version-tolerant, and the `[]`-on-uninterpretable fallback keeps OCR failure semantics on the document (UnreadableDocumentError path), never on a bbox crash.
+
+**Supersedes / references:** Extends Entry 6/7's environment unblocking — this was the last live OCR blocker for Workflow A.
+

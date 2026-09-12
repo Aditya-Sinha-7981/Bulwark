@@ -254,7 +254,12 @@ async def stream_job_events(
                 events = await get_events_for_job(job_id)
                 for event in events:
                     yield f"data: {json.dumps(event, separators=(',', ':'))}\n\n"
-                    if event["event_type"] in ("job_completed", "error"):
+                    # Only job_completed is terminal. `error` events fire on
+                    # recoverable tool failures mid-job (docs/audit.md) — the
+                    # Job continues after them, so they must NOT end the
+                    # stream (a late joiner on a Job with a mid-job error
+                    # would otherwise never receive live events).
+                    if event["event_type"] == "job_completed":
                         terminal_event_seen = True
 
             if terminal_event_seen:
@@ -271,7 +276,7 @@ async def stream_job_events(
                     if await request.is_disconnected():
                         break
 
-                    if event["event_type"] in ("job_completed", "error"):
+                    if event["event_type"] == "job_completed":
                         break
                 except asyncio.TimeoutError:
                     yield ": keep-alive\n\n"

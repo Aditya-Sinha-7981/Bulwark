@@ -22,4 +22,4 @@ ocr:
 
 ollama:
   base_url: http://localhost:11434    # loopback only — no external Ollama endpoint is supported (security.md layer 3)
-  request_timeout_seconds: 120         # Model Runtime HTTP request timeout; per-capability timeouts (config/capabilities.yaml) remain authoritative for capability execution
+  request_timeout_seconds: 300         # Model Runtime HTTP request timeout; per-capability timeouts (config/capabilities.yaml) remain authoritative for capability execution. Raised 120→300: long 9B generations on a 4K+ token prompt were hitting the 120s read timeout mid-job (observed live 2026-09-12).

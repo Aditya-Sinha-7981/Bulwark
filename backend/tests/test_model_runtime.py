@@ -10,6 +10,7 @@ import pytest
 import pytest_asyncio
 import httpx
 import asyncio
+import json
 import re
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -149,6 +150,64 @@ class TestFailureInjection:
 
         assert "404" in str(exc_info.value)
         assert "model not found" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_read_timeout_returns_typed_error(self, fresh_runtime, mock_emit):
+        """httpx.ReadTimeout → typed ModelRuntimeError mentioning the timeout,
+        plus an `error` audit event — not a raw escape into the Job catch-all."""
+        def read_timeout_handler(request):
+            raise httpx.ReadTimeout("timed out", request=request)
+
+        fresh_runtime._client = httpx.AsyncClient(
+            transport=httpx.MockTransport(read_timeout_handler),
+            base_url="http://localhost:11434",
+        )
+
+        with pytest.raises(ModelRuntimeError) as exc_info:
+            await fresh_runtime.generate("reasoning", "test prompt", job_id="test-job-id")
+
+        assert "read timeout" in str(exc_info.value)
+        mock_emit.assert_called()
+        assert mock_emit.call_args.args[0] == "error"
+
+    @pytest.mark.asyncio
+    async def test_generate_sends_num_ctx_from_resources(self, fresh_runtime):
+        """generate() must pass the resource's context_window as options.num_ctx —
+        otherwise Ollama's 4096 default silently truncates long prompts."""
+        captured = {}
+
+        def capture_handler(request):
+            captured["payload"] = json.loads(request.content)
+            return httpx.Response(200, json={"response": "ok", "prompt_eval_count": 1, "eval_count": 1})
+
+        fresh_runtime._client = httpx.AsyncClient(
+            transport=httpx.MockTransport(capture_handler),
+            base_url="http://localhost:11434",
+        )
+
+        await fresh_runtime.generate("reasoning", "test prompt")
+
+        expected = fresh_runtime._resolve("reasoning").context_window
+        assert expected is not None
+        assert captured["payload"]["options"]["num_ctx"] == expected
+
+    @pytest.mark.asyncio
+    async def test_generate_caller_num_ctx_overrides_resource(self, fresh_runtime):
+        """A caller-supplied num_ctx wins over the resource's context_window."""
+        captured = {}
+
+        def capture_handler(request):
+            captured["payload"] = json.loads(request.content)
+            return httpx.Response(200, json={"response": "ok", "prompt_eval_count": 1, "eval_count": 1})
+
+        fresh_runtime._client = httpx.AsyncClient(
+            transport=httpx.MockTransport(capture_handler),
+            base_url="http://localhost:11434",
+        )
+
+        await fresh_runtime.generate("reasoning", "test prompt", options={"num_ctx": 1024})
+
+        assert captured["payload"]["options"]["num_ctx"] == 1024
 
     @pytest.mark.asyncio
     async def test_unknown_resource_type_fails_before_network(self, fresh_runtime):

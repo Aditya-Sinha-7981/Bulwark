@@ -1,8 +1,8 @@
 # logs/feature-model-runtime.md
 
-> Feature / workstream: `feature-model-runtime` (branches: `feature/model-runtime`)
+> Feature / workstream: `feature-model-runtime` (branches: `feature/model-runtime`, `fix/model-runtime-num-ctx-and-timeout`)
 > Started: 2026-09-07 by opencode/nemotron-3-ultra-free
-> Status: completed
+> Status: in-progress (Task 8 complete; num_ctx-enforcement/timeout fix on `fix/model-runtime-num-ctx-and-timeout` pending commit)
 
 ## Goal
 
@@ -114,6 +114,38 @@ grep -rn "11434\|/api/generate\|/api/embed" backend/ --include=*.py  # only runt
 **Summary:** Implemented Ollama HTTP wrapper as the single backend module for model calls. All 4 resource types supported with resource-type abstraction (no model names in calling code). Typed errors with fast failure (~5s connect timeout). Audit events + DB rows per call. 23 unit tests pass covering resolution, failure injection, options filtering, audit/DB, protocol compliance, error events, and keep_alive. Integration tests ready for Ollama environment.
 **Final test status:** 23 passed, 5 deselected (integration)
 **Reviewer notes:** Ready for PR. No locked contracts violated. Runtime is genuinely swappable (ADR-07). Zero-egress preserved (loopback-only base_url from Task 2 config validation).
+
+---
+
+### Entry 7 — 2026-09-12 10:55 — context_window now enforced as num_ctx; request timeout raised to 300s; typed ReadTimeout (branch `fix/model-runtime-num-ctx-and-timeout`)
+
+**What changed:**
+- `backend/domain/model_runtime/runtime.py:110-133` — `generate()` now defaults `options.num_ctx` from the resolved resource entry's `context_window` (`config/resources.yaml`) before the `ALLOWED_GENERATE_OPTIONS` filter; a caller-supplied `num_ctx` still wins. Docstring updated.
+- `backend/domain/model_runtime/runtime.py` — added `except httpx.ReadTimeout` handlers in `generate()` (after the HTTPStatusError handler, before `async def embed`) and in `embed()` (before `async def is_model_loaded`): both emit an `error` audit event ("Request exceeded {N}s read timeout") and raise typed `ModelRuntimeError` instead of letting a bare `httpx.ReadTimeout` escape into the Job Manager catch-all.
+- `config/app.yaml:25` — `request_timeout_seconds` 120 → 300.
+- `config/resources.yaml` — `context_window` 128000/32768/256000 → 16384 for reasoning/code_generation/vision (KV-cache budget; see Why).
+- `docs/models.md` — table + yaml block updated to 16,384; new paragraph stating `context_window` is passed as `options.num_ctx` (not descriptive metadata); memory-budget table gained a KV-cache row (~0.5–1GB per loaded generate model) and a note that KV cache scales with num_ctx.
+- `backend/tests/test_model_runtime.py` — added `test_read_timeout_returns_typed_error`, `test_generate_sends_num_ctx_from_resources` (captured request payload asserts `options.num_ctx == resolve(...).context_window`), `test_generate_caller_num_ctx_overrides_resource` (caller `num_ctx: 1024` wins). Added `import json`. Note: `emit` is called positionally in runtime.py, so the audit-event assertion checks `mock_emit.call_args.args[0]`, not kwargs.
+- `backend/tests/test_config.py:38` — timeout assertion 120 → 300.
+
+**Why:** Found live during the manual API test pass (Workflow C / RAG job, 2026-09-12): Ollama log showed `runner.go "truncating input prompt" limit=4096 prompt=4331/4376` — `context_window` was declared in resources.yaml (128000/32768/256000) but never sent to Ollama, which ran at its default `num_ctx=4096` and silently truncated orchestrator prompts. Separately, a generation running 2m00s hit the 120s httpx read timeout (`config/app.yaml`), and the unhandled `httpx.ReadTimeout` surfaced in the Job as `unrecoverable_error` / `"ReadTimeout: "` (empty message). Ollama also 500'd ("model runner has unexpectedly stopped") — memory pressure, mitigated operationally by unloading unused resident models (`qwen2.5:7b`, `nomic-embed-text` — not referenced by resources.yaml). Context values were lowered (not raised) because the previously declared 128K/256K KV caches would not fit the M4 Pro 24GB budget in `docs/models.md`; 16,384 leaves ~3.5× headroom over the largest observed prompt (~4.4K tokens). User approved this exact scope (timeout + num_ctx + typed handler) via explicit go-ahead.
+
+**How to verify:**
+- `backend/.venv/bin/python -m pytest backend/tests/ -q -m "not integration"` → 491 passed; only failure is the pre-existing environmental `test_job_manager_dispatch.py::test_executor_error_is_failed_tool_result_not_crash` (verified failing on a clean tree via `git stash` — it expects an uninitialised Chroma collection, but on this machine live Chroma + seeded KB make retrieval succeed, so no `error` event fires; not a regression of this branch).
+- `test_model_runtime.py -k "not integration"` → 26 passed.
+- Live: restart backend, run Workflow C; Ollama log should show `num_ctx` ≥ 16384 honored (no `truncating input prompt` warning at ~4.3K-token prompts) and `/api/ps` should reflect the larger context.
+
+**Open issues / known gaps:**
+- `embed()` intentionally does NOT pass `num_ctx` (Ollama's `/api/embed` doesn't take generation options the same way; embedding model's 4096 default is ample for ~800-char chunks). Revisit only if chunk sizes grow.
+- The environmental dispatch test above should be made hermetic (stub Chroma or force collection absence) by whoever owns test_rag/test_job_manager suites — flagged, not fixed here.
+- Operational hygiene (not code): unload unused Ollama models (`ollama stop qwen2.5:7b`, `ollama stop nomic-embed-text`) during test sessions; `embedding` keep_alive is `-1` by design.
+
+**Decisions made:**
+- Default num_ctx comes from the Registry (`context_window`), not a new config key — keeps model names/params in `config/resources.yaml` only (AGENTS.md §6 rule 3), and makes the declared value authoritative instead of decorative.
+- 16384 chosen for all three generate resource types; 300s request timeout; typed ReadTimeout → `ModelRuntimeError` (server responded slowly ≠ runtime unavailable). All user-approved.
+- This entry lives in the model-runtime log (owner workstream); the interleaved audit change is Entry 8 of `logs/feature-rag.md` on the sibling branch.
+
+**Supersedes / references:** Builds on the audit `job_id=None` fix (`fix/kb-ingestion-model-invoked-job-id`, `logs/feature-rag.md` Entry 8) — both changes coexist in the working tree; `runtime.py` docstrings from that branch are included in this branch's commit (see commit split note given to the user).
 
 ---
 

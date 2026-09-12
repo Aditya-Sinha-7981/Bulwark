@@ -4,10 +4,12 @@
 
 | Role | Resource type | Model | Runtime | Context window | Quantization |
 |---|---|---|---|---|---|
-| Orchestrator/reasoning | `reasoning` | `qwen3.5:9b` (default; benchmark validation in progress vs. `gpt-oss:20b`, see `testing.md`) | Ollama | 128,000 (as configured) | Q4_K_M |
-| Coding | `code_generation` | `qwen2.5-coder:7b` | Ollama | 32,768 | Q4_K_M |
-| Vision (fallback only) | `vision` | `qwen3.5:9b` (same model as reasoning) | Ollama | 256,000 | Q4_K_M |
+| Orchestrator/reasoning | `reasoning` | `qwen3.5:9b` (default; benchmark validation in progress vs. `gpt-oss:20b`, see `testing.md`) | Ollama | 16,384 (as configured) | Q4_K_M |
+| Coding | `code_generation` | `qwen2.5-coder:7b` | Ollama | 16,384 | Q4_K_M |
+| Vision (fallback only) | `vision` | `qwen3.5:9b` (same model as reasoning) | Ollama | 16,384 | Q4_K_M |
 | Embedding | `embedding` | `qwen3-embedding:0.6b` | Ollama | n/a | default |
+
+`context_window` is not just descriptive metadata: Model Runtime passes it to Ollama as `options.num_ctx` on every `generate` call (a caller-supplied `num_ctx` still wins). Without this, Ollama silently falls back to its default `num_ctx` of 4096 and **truncates longer prompts** — observed live as `runner.go "truncating input prompt"` on ~4.3K-token orchestrator prompts. Values were lowered to 16,384 (from 128K/32K/256K) because the KV cache for the larger values would not fit the M4 Pro 24GB memory budget below; 16,384 leaves ~3.5× headroom over the largest observed orchestrator prompt.
 
 **Note:** reasoning and vision share the same underlying model (`qwen3.5:9b`) in the current configuration — one loaded instance can serve both resource types, which is a memory-efficiency property of this specific configuration, not an architectural requirement. If the reasoning model is later changed to something without vision capability, `vision` resolves independently per its own registry entry.
 
@@ -20,19 +22,19 @@ resources:
   reasoning:
     model: qwen3.5:9b
     runtime: ollama
-    context_window: 128000
+    context_window: 16384
     keep_alive: "5m"
 
   code_generation:
     model: qwen2.5-coder:7b
     runtime: ollama
-    context_window: 32768
+    context_window: 16384
     keep_alive: "5m"
 
   vision:
     model: qwen3.5:9b
     runtime: ollama
-    context_window: 256000
+    context_window: 16384
     keep_alive: "5m"
 
   embedding:
@@ -69,8 +71,9 @@ Sits behind the Model Runtime. Responsibilities:
 | `embedding` (always resident) | ~1.5GB |
 | `reasoning`/`vision` (`qwen3.5:9b`, shared) | ~6.6GB |
 | `code_generation` (`qwen2.5-coder:7b`), if concurrently loaded | ~5GB |
+| KV cache at `num_ctx: 16384` (per loaded generate model) | ~0.5–1GB |
 
-Reasoning+embedding alone: ~9GB — comfortable. Reasoning+coding+embedding concurrently: ~14GB — comfortable, well within budget (this configuration, using `qwen3.5:9b` rather than the larger `gpt-oss:20b` candidate, specifically buys back the headroom that made concurrent-loading tight in the earlier candidate evaluation — see `testing.md` for the full comparison). This is validated empirically, not just estimated — see the memory-test procedure in `testing.md`.
+Reasoning+embedding alone: ~9GB — comfortable. Reasoning+coding+embedding concurrently: ~14GB — comfortable, well within budget (this configuration, using `qwen3.5:9b` rather than the larger `gpt-oss:20b` candidate, specifically buys back the headroom that made concurrent-loading tight in the earlier candidate evaluation — see `testing.md` for the full comparison). This is validated empirically, not just estimated — see the memory-test procedure in `testing.md`. Note: KV cache scales with `num_ctx` — the 16,384 context windows above were sized for this budget; a larger window (e.g. 128K) would add many GB and risk the Ollama runner being OOM-killed under concurrent load.
 
 ## Fallbacks
 

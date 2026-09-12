@@ -89,6 +89,54 @@ Implement the `generate_code` and `execute_code` capabilities for demo Workflow 
 
 ---
 
+### Entry 6 — 2026-09-12 12:19 — generate_code wired to the real Model Runtime; stub removed; fenced-response parsing hardened (branch `fix/model-runtime-num-ctx-and-timeout`)
+
+**What changed:**
+- `backend/domain/capabilities/generate_code.py` — `ModelRuntimeStub` deleted; `_call_model_runtime(prompt, job_id=None)` now calls the real `model_runtime.generate("code_generation", prompt, job_id=job_id)` (module-level singleton from Task 8). Resolves Open question #4 below. Module docstring's stale "not yet implemented (Task 8)" note removed. Also hardened `_parse_model_response()`: markdown code fences are stripped from the CODE: section, and a fallback path now extracts ```python fenced block(s) as code with surrounding prose as explanation — coder models emit fences despite the format instructions.
+- `backend/tests/test_generate_code_capability.py` — happy-path tests now monkeypatch `_call_model_runtime` with canned responses (hermetic, was stub-dependent); fake model signatures gained `*, job_id=None`; new `TestParseModelResponse` class (4 tests: instructed format, fenced-without-markers, fences-inside-CODE:, plain fallback).
+
+**Why:** Observed live (job `a28d1a22`, 2026-09-12, Phase 5 / Workflow B): the Orchestrator proposed `generate_code` 4× with varying args and hit malformed output 4× of ~7 steps — because the stub returned canned `2 + 2` code for a tanks-volume task (keyword fallback), the Orchestrator thrashed against a useless tool result. The trace also showed **zero `model_invoked` events for `code_generation`** — the stub never called Ollama, violating the `docs/audit.md` model_invoked contract and leaving `qwen2.5-coder:7b` unused. Sanity script against live Ollama after the fix: correct tanks script generated; the model emitted a fenced block (not the instructed CODE:/EXPLANATION: format), which the previous parser's fallback would have passed to the sandbox verbatim (`\`\`\`python` first line → guaranteed SyntaxError) — hence the parser hardening in the same change.
+
+**How to verify:**
+- `backend/.venv/bin/python -m pytest backend/tests/test_generate_code_capability.py -q` → 14 passed.
+- Full non-integration suite → 507 passed; only failure remains the pre-existing environmental dispatch test.
+- Live: run Workflow B (B1) in a fresh conversation → trace must now show `model_invoked` events with `resource_type: "code_generation"` / `qwen2.5-coder:7b` alongside the reasoning calls; generated code is fence-free.
+
+**Open issues / known gaps:**
+- The malformed-output frequency in the failing trace (4/8 turns non-JSON) was driven by the stub's useless tool result — expect improvement with real code results, but the 9B reasoning model's JSON discipline under long tool-result context remains a watch item (corrective-turn mechanism handles it; each malformed after the first costs a step).
+- Open question #1 below still stands: Docker-backed execute_code integration tests have not been run for real (needs Docker Desktop + `bulwark-sandbox:latest` built) — that's the user's Phase 5 step.
+
+**Decisions made:**
+- Reused the module-level `runtime` singleton and passed `job_id` through — matches `vision_escalation.py`'s call pattern; audit attribution per `docs/audit.md`.
+- Parser prefers the instructed CODE:/EXPLANATION: format and only falls back to fence extraction; `[]`-fence-stripping also applies when fences appear *inside* the CODE: section.
+
+**Supersedes / references:** Resolves Open question #4 (stub wiring); follows Entry 5. The stub's docstring referenced this log's known gap — now closed.
+
+---
+
+### Entry 7 — 2026-09-12 12:45 — execute_code never imported at runtime: stale `domain.` import (branch `fix/model-runtime-num-ctx-and-timeout`)
+
+**What changed:**
+- `backend/domain/capabilities/execute_code.py:15` — `from domain.capabilities.registry import get_registry` → `from backend.domain.capabilities.registry import get_registry`. One-line import-layout fix; no behavioral change to the executor logic.
+
+**Why:** Observed live (job `a6bd3285`, 2026-09-12, Phase 5 / Workflow B): `generate_code` now works (Entry 6), but the first real `execute_code` invocation failed with `ModuleNotFoundError: No module named 'domain'` — the step failed with exactly that message (the dispatch wraps exceptions as `f"{type(exc).__name__}: {exc}"`). Root cause: the executor module was written against the pre-`backend.`-package import layout and **only ever imported successfully under pytest** (`pytest.ini: pythonpath = . ..`), because the live server (repo root on sys.path) has no top-level `domain` package — so the module crashed at import on first dispatch. It has therefore never executed for real. The sandboxed code itself was verified clean via the DB (`job_steps.input_payload` — a simple stdlib classification script, no `domain` import); the container never ran. The model then honestly reported the failure instead of fabricating success — correct B4-style behavior.
+
+**How to verify:**
+- `backend/.venv/bin/python -c "import backend.domain.capabilities.execute_code"` → imports cleanly under the live layout.
+- `backend/.venv/bin/python -m pytest backend/tests/test_execute_code_capability.py -q` → 12 passed.
+- Full non-integration suite → 516 passed (collects the execute_code tests that previously couldn't import); only failure remains the pre-existing environmental dispatch test.
+- Live: re-run Workflow B in a fresh conversation — `execute_code` should now actually start a container; expect stdout with the computed classifications (or, if Docker Desktop isn't running / image missing, an honest structured `docker_unavailable`-style failure, not an import crash).
+
+**Open issues / known gaps:**
+- Open question #1 (Docker-backed integration tests run for real) still stands — the first successful `execute_code` run in the live environment doubles as that verification.
+- Worth a sweep for other stale-layout imports in live-dispatched modules — `rg "from domain\." backend -g '!tests'` found only this one (now fixed), but noting the pattern here since it survived until a real invocation.
+
+**Decisions made:** Minimal one-line fix; no test changes needed (the test file already imports via `backend.`).
+
+**Supersedes / references:** Follows Entry 6 — together they make Workflow B's `generate_code → execute_code` chain live for the first time.
+
+---
+
 ## Open questions for the user
 1. **Docker-backed integration tests must be run for real** on a machine with Docker Desktop running and `bulwark-sandbox:latest` built, before Task 13's acceptance criteria can be considered fully met. This build only proves the tests are written correctly and the Python logic around Docker is sound; it does not prove Docker itself behaves as expected end-to-end (real `--network none` enforcement, real `--read-only` enforcement, real timeout/kill behavior under actual container startup latency, etc.).
 

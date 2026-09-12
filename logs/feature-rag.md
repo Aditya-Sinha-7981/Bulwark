@@ -1,8 +1,8 @@
 # logs/feature-rag.md
 
-> Feature / workstream: `rag`  (branches: `feature/rag-ingestion`, `feature/rag-retrieval`, …)
+> Feature / workstream: `rag`  (branches: `feature/rag-ingestion`, `feature/rag-retrieval`, `fix/kb-ingestion-model-invoked-job-id`, …)
 > Started: 2026-09-11 by Claude Sonnet 5
-> Status: in-progress (ingestion — Task 12.a — complete; retrieval — Task 12.b — complete; capability not yet wired into the Orchestrator loop, that's Task 15)
+> Status: in-progress (ingestion — Task 12.a — complete; retrieval — Task 12.b — complete; job-independent-embedding audit fix on `fix/kb-ingestion-model-invoked-job-id` pending commit; capability not yet wired into the Orchestrator loop, that's Task 15)
 
 ## Goal
 
@@ -188,6 +188,34 @@ Full suite (excluding the same pre-existing missing-dependency collection errors
 - Flagged (not resolved) doc/task contradiction on `docs/capabilities.md#search_knowledge_base`'s "Failure modes" line vs. this task's locked "empty collection → failed" decision — see Entry 6 "Open issues". Someone should reconcile the doc.
 - This capability is not yet reachable from the Orchestrator loop — `domain/job_manager/manager.py`'s `invoke_capability` branch is still an explicit stub ("capability invocation not implemented in stub; Task 15 will handle"), confirmed by inspection before starting this task. Nothing in this branch changes that; Task 15 wires dispatch.
 - Manual verification (§8, real Ollama + a seeded KB + a stopped-Ollama check) has not been run — no Ollama available in this session's sandbox, same constraint as Task 12.a.
+
+### Entry 8 — 2026-09-12 10:04 — KB ingestion blocked by model_invoked audit validation; job_id made optional for `model_invoked` (branch `fix/kb-ingestion-model-invoked-job-id`)
+
+**What changed:**
+- `backend/domain/audit/events.py:84` — renamed `_JOB_INDEPENDENT_EVENT_TYPES` → `_OPTIONAL_JOB_ID_EVENT_TYPES` and set it to `frozenset({"error", "model_invoked"})` (network_check stays in its own must-be-`None` branch above). `_validate_job_id()` now accepts `job_id=None` for `model_invoked`; docstrings of `_validate_job_id()` (events.py:87-101) and `emit()` (events.py:~170) updated.
+- `docs/audit.md:22` — contract updated: null `job_id` now also covers a `model_invoked` fired by Model Runtime on a Job-independent background process's behalf (KB ingestion embeddings), recorded with `job_id: null`, queryable via the `(event_type, timestamp)` index.
+- `backend/domain/model_runtime/runtime.py` — docstring-only updates on `embed()` (job_id arg documented, runtime.py:193-198) and `_record()` (job_id may be None for background invocations, runtime.py:~341-350). No behavioral change.
+- `backend/tests/test_audit_events.py` — added `test_emit_model_invoked_without_job_id_allowed` (persists with `job_id=None`, queryable via `query_by_event_type`) and `test_emit_model_invoked_with_job_id_allowed` (in-Job path unchanged).
+
+**Why:** Found live during the manual API test pass (Phase 1 KB seeding): every `POST /api/v1/knowledge-base/documents` failed at the embedding step with `ValueError: Event type 'model_invoked' requires a job_id` — `ingest_document` is a Job-independent background task (`tasks/12a-rag-ingestion.md` §6, locked decision; `backend/domain/rag/ingestion.py:202-217`), and `_embed_chunks` (ingestion.py:268-270) calls `model_runtime.embed("embedding", chunks)` without a job_id, whose `_record` (runtime.py:238, 341+) unconditionally emitted `model_invoked`, which `_validate_job_id` rejected. Result: doc marked `failed`, KB unusable. Contract deviation (extending `docs/audit.md:22`'s null-job_id list) was flagged and **Option A approved by the user** over Option B (skip emission when job_id is None — rejected because it would leave background embedding invocations with zero audit trail, against `docs/audit.md:5`).
+
+**How to verify:**
+- `backend/.venv/bin/python -m pytest backend/tests/test_audit_events.py backend/tests/test_model_runtime.py backend/tests/test_rag_ingestion.py -q` → 54 passed, 1 failed (see Open issues — environmental, pre-existing).
+- End-to-end (needs backend restart to pick up the change): delete the 3 failed KB rows via `DELETE /api/v1/knowledge-base/documents/{id}`, re-ingest the 4 SOPs from `test-assets/knowledge-base/`, poll `GET /api/v1/knowledge-base` until all show `status: "ready"`.
+- `SELECT * FROM audit_events WHERE event_type='model_invoked' AND job_id IS NULL;` shows the ingestion embedding invocations.
+
+**Open issues / known gaps:**
+- `test_model_runtime.py::TestGenerateIntegration::test_generate_vision_with_image_returns_text` fails with Ollama `500: model runner has unexpectedly stopped, this may be due to resource limitations or an internal error` — real-Ollama integration test (no mock), `qwen3.5:9b` is installed; Ollama-side resource exhaustion while backend + multiple models are up. Unrelated to this change (no `generate()` path touched). Re-run when Ollama is freshly restarted / less loaded.
+- The user's backend was running pre-fix code; must be restarted (Ctrl+C, re-run uvicorn) before re-testing Phase 1.
+
+**Decisions made:**
+- Option A (nullable job_id for `model_invoked`, event still persisted) over Option B (suppress emission) — user-approved; audit trail preserved.
+- Set renamed `_JOB_INDEPENDENT_EVENT_TYPES` → `_OPTIONAL_JOB_ID_EVENT_TYPES` because `model_invoked` is normally Job-scoped; "optional" describes the actual rule ("may be None"), while `network_check` remains the only must-be-`None` type.
+- Log entry goes in this RAG log (bug manifests in ingestion; precedent: Entry 3's `error` exemption was logged here too). Audit (`feature-audit.md`) and model-runtime (`feature-model-runtime.md`) owners should be told their modules' docs/docstrings changed — no behavioral change on their in-Job paths.
+
+**Supersedes / references:** Extends the pattern introduced in Entry 3 (`error` allowed `job_id=None`); no entry contradicted.
+
+---
 
 ## Open questions for the user
 
