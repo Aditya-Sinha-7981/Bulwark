@@ -169,3 +169,28 @@ python -m pytest tests/test_document_processing.py -q
 - `git diff --check` clean.
 - Only Task 11 files modified (9 modified, 2 new).
 - Ready for independent review.
+---
+
+### Entry 6 — 2026-09-12 11:35 — paddlepaddle was never installed; venv recreated on Python 3.12, OCR stack pinned (branch `fix/model-runtime-num-ctx-and-timeout`)
+
+**What changed:**
+- `backend/requirements.txt` — `paddleocr` → `paddleocr==3.7.0`, added `paddlepaddle>=3.0` (a real runtime dependency pip had not pulled on its own).
+- `.python-version` (new, repo root) — `3.12`, so uv/pyenv resolve a compatible interpreter for anyone setting up fresh.
+- Environment (not repo): `backend/.venv` recreated on CPython 3.12.8 via uv (was Python 3.14.7) and reinstalled from requirements + paddlepaddle + paddleocr 3.7.0. Installed: paddleocr 3.7.0, paddle 3.3.1.
+
+**Why:** Found live during the manual test pass (Phase 4, job `b806d722`, 2026-09-12): the Orchestrator correctly proposed `extract_document` with the right `document_id` (the attachment-note fix works), but the executor failed immediately: `ExtractDocumentError: OCR failed: Engine 'paddle_static' is unavailable because dependency 'paddlepaddle' is not installed.` Root cause chain: (1) the venv ran Python 3.14.7 — paddlepaddle publishes no wheels for 3.14 (`pip install paddlepaddle --dry-run` → "from versions: none"), so the engine was absent while the paddleocr *wrapper* package was present; (2) recreating the venv on Python 3.12 then resolved *unpinned* `paddleocr` to 2.10.0 (2.x API, not what `backend/domain/document_processing/ocr.py` was written against — the previous env had 3.7.0), so the OCR stack is now pinned.
+
+**How to verify:**
+- `backend/.venv/bin/python -c "import paddleocr, paddle; print(paddleocr.__version__, paddle.__version__)"` → `3.7.0 3.3.1`.
+- Full non-integration suite on the new venv → 495 passed; only failure is the pre-existing environmental `test_job_manager_dispatch.py::test_executor_error_is_failed_tool_result_not_crash`.
+- Live: restart backend, re-run Workflow A — the first `extract_document` call will additionally download PP-OCR models (one-time, local); check the trace for a succeeded `capability_invocation` step.
+
+**Open issues / known gaps:**
+- None blocking. Note: first OCR run downloads PaddleOCR model weights into the local model cache — allowed (local model assets, not external egress at runtime beyond the one-time model pull; same trust class as pulling Ollama models).
+
+**Decisions made:**
+- Python 3.12 (not 3.13) for the venv — widest wheel support across paddle/chroma/other ML deps while satisfying "3.11+" (`AGENTS.md` §8).
+- Pinned `paddleocr==3.7.0` (matches the version the OCR integration was built against; unpinned resolved to 2.10.0 on the fresh venv) and added `paddlepaddle>=3.0`. The rest of `requirements.txt` stays unpinned, matching its existing style.
+
+**Supersedes / references:** None — environment/dependency correction on top of Entry 5; the code itself is untouched.
+
