@@ -139,6 +139,31 @@ Also: `rg -l "fetch\\(" frontend/src` should return only `services/api.js`; conf
 
 ---
 
+### Entry 5 — 2026-09-12 20:51 — pre-merge contract audit fixes: SSE terminal set, event dedupe, message timestamps (branch `fix/frontend-sse-and-shapes`)
+
+**What changed:**
+- `frontend/src/hooks/useJobEvents.js` — `TERMINAL_EVENT_TYPES` reduced to `{'job_completed'}` (was also closing on `'error'`, which fires on *recoverable* tool failures mid-job — the Job continues and the trace froze); added `event_id` dedupe (`seenEventIds`, cleared on mount and reconnect) because the hook fetches `/trace` AND opens SSE with the backend's default `replay=true`, so every historical event rendered twice.
+- `frontend/src/components/ChatPanel.jsx` — bubble timestamp renders `msg.created_at ?? msg.timestamp` (backend sends `created_at`; `timestamp` was undefined → "Invalid Date" on every bubble).
+- Committed as `39a57dc` on `fix/frontend-sse-and-shapes` (branched off `origin/main` at `9d25727`).
+
+**Why:** Found during the pre-merge frontend↔backend contract audit requested by the user (2026-09-12), cross-checked against the actual backend routes. The `error`-as-terminal assumption existed on both sides (backend half fixed on `fix/model-runtime-num-ctx-and-timeout`, commit `dc6c86d`); the duplicate-render came from the late-join trace-fetch + default replay combination.
+
+**How to verify:**
+- `cd frontend && npm test` → 11/11 passed; `npm run build` succeeds (on the fix branch and on the merged backend branch).
+- Live: open a Job trace for a Job that had a mid-job tool failure → stream must keep updating; refresh mid-job → no duplicated events; message bubbles show real times.
+
+**Open issues / known gaps (handed to the frontend owner, not fixed here):**
+- `ApiError` has no `code` field → `ErrorBanner` header shows literal "ERROR" for HTTP failures.
+- The `[Attached document(s): document_id=…]` attachment note (backend-side enrichment so the Orchestrator can propose `extract_document`) renders raw in user bubbles — may want pretty-printing.
+- Workbench page-level `handleError`/`ErrorBanner` is dead code (ChatPanel has its own working error path).
+- `services/api.js` `BASE_URL` is hardcoded `http://127.0.0.1:8000` — the sovereignty branch's `VITE_API_BASE_URL` env override was lost in the main-merge conflict resolution; restore it if the demo ever runs on a non-default host/port.
+
+**Decisions made:** Dedupe by `event_id` (not `?replay=false`) — keeps the backend replay as a safety net for events between trace-fetch and SSE-connect, while the Set makes double-delivery harmless.
+
+**Supersedes / references:** Builds on Entries 1–4; pairs with backend fix `dc6c86d` (`logs/feature-job-system.md` Entry 5).
+
+---
+
 ## Open questions for the user
 
 - None at present. Awaiting: (1) manual visual QA in a real browser against the four reference screenshots, and (2) a decision on whether Workbench job creation + the Jobs dashboard should wire to the backend once it ships a conversations/job-list endpoint (Task 16 integration). (Branch-name ambiguity resolved: using `feature/frontend-scaffold` originally; current work on `feature/frontend-scaffold-health`.)
