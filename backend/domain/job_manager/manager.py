@@ -202,8 +202,12 @@ async def create_job(conversation_id: str, input_message: str, document_ids: Lis
     Create a Job (`status: created`), append the triggering user message to the
     conversation, and emit `job_created`.
 
-    `document_ids` are referenced (not fetched) — the Orchestrator asks for
-    their contents via `extract_document` if it needs them.
+    `document_ids` reference documents already uploaded via `POST /documents`.
+    The Orchestrator learns them through the conversation history: when
+    non-empty, the stored user message carries an attachment note listing each
+    `document_id`, so the Orchestrator can propose `extract_document` with it
+    (docs/demo.md Workflow A). The Job row and the `job_created` event keep
+    the raw `input_message`.
     """
     job_id = jobs_repo.create_job(
         conversation_id=conversation_id,
@@ -213,10 +217,21 @@ async def create_job(conversation_id: str, input_message: str, document_ids: Lis
 
     # The user's request enters the Orchestrator's context as conversation
     # history (docs/agent.md "Conversation state") — record it as a message row.
+    # Attachment references ride along on the message: the Orchestrator has no
+    # other channel to learn the document_ids it must put into
+    # extract_document's arguments (docs/demo.md Workflow A step 1).
+    if document_ids:
+        attachment_note = "[Attached document(s): " + ", ".join(
+            f"document_id={d}" for d in document_ids
+        ) + "]"
+        message_content = f"{input_message}\n\n{attachment_note}"
+    else:
+        message_content = input_message
+
     conversations_repo.append_message(
         conversation_id=conversation_id,
         role="user",
-        content=input_message,
+        content=message_content,
     )
 
     await emit(

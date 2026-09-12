@@ -170,6 +170,54 @@ def test_create_job_returns_201_and_creates_row(client, temp_db):
     assert created[0]["payload"]["input_message"] == "Test message"
 
 
+def test_create_job_with_document_ids_enriches_user_message(client, temp_db):
+    """document_ids reach the Orchestrator via an attachment note in the stored
+    user message (Workflow A fix: the Orchestrator needs the document_id to
+    propose extract_document — docs/demo.md step 1). The Job row and the
+    job_created event keep the raw input_message."""
+    conv_id = conversations_repo.create_conversation()
+    resp = client.post(
+        "/api/v1/jobs",
+        json={
+            "conversation_id": conv_id,
+            "message": "Review the attached report and draft an approval note.",
+            "document_ids": ["doc-uuid-1", "doc-uuid-2"],
+        },
+    )
+    assert resp.status_code == 201
+    job_id = resp.json()["job_id"]
+    _wait_terminal(job_id)
+
+    # Job row keeps the raw message
+    job = jobs_repo.get_job(job_id)
+    assert job["input_message"] == "Review the attached report and draft an approval note."
+
+    # job_created event keeps the raw message
+    events = asyncio.run(get_events_for_job(job_id))
+    created = [e for e in events if e["event_type"] == "job_created"]
+    assert created[0]["payload"]["input_message"] == "Review the attached report and draft an approval note."
+
+    # Conversation history carries the attachment note with every id
+    user_messages = [m for m in conversations_repo.list_messages(conv_id) if m["role"] == "user"]
+    assert len(user_messages) == 1
+    content = user_messages[0]["content"]
+    assert content.startswith("Review the attached report and draft an approval note.")
+    assert "document_id=doc-uuid-1" in content
+    assert "document_id=doc-uuid-2" in content
+
+
+def test_create_job_without_document_ids_keeps_message_unmodified(client, temp_db):
+    """No document_ids → stored user message is exactly the input message
+    (no attachment note)."""
+    conv_id = conversations_repo.create_conversation()
+    job_id = _create_job(client, conv_id, message="plain question")
+    _wait_terminal(job_id)
+
+    user_messages = [m for m in conversations_repo.list_messages(conv_id) if m["role"] == "user"]
+    assert len(user_messages) == 1
+    assert user_messages[0]["content"] == "plain question"
+
+
 def test_job_completes_with_final_message(client, temp_db):
     conv_id = conversations_repo.create_conversation()
     job_id = _create_job(client, conv_id)
