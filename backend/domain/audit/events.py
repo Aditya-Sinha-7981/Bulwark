@@ -81,22 +81,27 @@ def _validate_payload(event_type: str, payload: Dict[str, Any]) -> None:
             )
 
 
-_JOB_INDEPENDENT_EVENT_TYPES = frozenset({"network_check", "error"})
+# Event types that may be emitted without a job_id (Job-independent background
+# work). `network_check` is handled separately above: it must always have
+# job_id=None.
+_OPTIONAL_JOB_ID_EVENT_TYPES = frozenset({"error", "model_invoked"})
 
 
 def _validate_job_id(event_type: str, job_id: Optional[str]) -> None:
     """Validate job_id.
 
     `network_check` must always have job_id=None (it is continuous, independent
-    of any Job). `error` may have job_id=None too — a Job-independent background
-    process (e.g. knowledge-base ingestion, `rag.md`) has no Job to attach to,
-    the same pattern `network_check` already uses (`docs/audit.md`). Every other
-    event type is Job-scoped and requires a job_id.
+    of any Job). `error` and `model_invoked` may have job_id=None — a
+    Job-independent background process (e.g. knowledge-base ingestion, `rag.md`)
+    has no Job to attach to, the same pattern `network_check` already uses
+    (`docs/audit.md`); `model_invoked` is emitted by Model Runtime on such a
+    process's behalf when it invokes the embedding model for KB ingestion.
+    Every other event type is Job-scoped and requires a job_id.
     """
     if event_type == "network_check":
         if job_id is not None:
             raise ValueError("network_check events must have job_id=None")
-    elif job_id is None and event_type not in _JOB_INDEPENDENT_EVENT_TYPES:
+    elif job_id is None and event_type not in _OPTIONAL_JOB_ID_EVENT_TYPES:
         raise ValueError(f"Event type '{event_type}' requires a job_id")
 
 
@@ -157,8 +162,9 @@ async def emit(
         component: Component that emitted the event (e.g., "api", "orchestrator").
         payload: Event payload dict (will be JSON serialized).
         job_id: Job UUID, or None for job-independent events (`network_check`,
-            and `error` fired by a job-independent background process such as
-            KB ingestion — `docs/audit.md`).
+            `error` fired by a job-independent background process, and
+            `model_invoked` fired by Model Runtime on such a process's behalf —
+            e.g. knowledge-base ingestion embeddings — `docs/audit.md`).
 
     Returns:
         The event dict that was persisted and pushed.

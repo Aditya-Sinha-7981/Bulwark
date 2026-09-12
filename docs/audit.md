@@ -19,7 +19,7 @@ Table definition: `data-model.md#AuditEvent`. Restated here for reference:
 }
 ```
 
-`job_id` is null only for Job-independent events — for example `network_check` (continuous, independent of any Job activity) and an `error` event fired by a Job-independent background process such as knowledge-base ingestion (`rag.md`).
+`job_id` is null only for Job-independent events — for example `network_check` (continuous, independent of any Job activity), an `error` event fired by a Job-independent background process such as knowledge-base ingestion (`rag.md`), and a `model_invoked` event fired by Model Runtime on such a background process's behalf (knowledge-base ingestion embeddings — there is no Job to attach to, so the invocation is recorded with `job_id: null` and remains queryable via the `(event_type, timestamp)` index).
 
 ## Event types
 

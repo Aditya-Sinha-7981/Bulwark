@@ -115,6 +115,43 @@ class TestEmitFunction:
         assert rows[0]["job_id"] is None
 
     @pytest.mark.asyncio
+    async def test_emit_model_invoked_without_job_id_allowed(self, temp_db):
+        """emit() with model_invoked and job_id=None succeeds (Job-independent
+        background invocation — e.g. KB ingestion embeddings, docs/audit.md)."""
+        payload = {
+            "resource_type": "embedding",
+            "model_identifier": "test-embed-model",
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "duration_ms": 42,
+        }
+        event = await emit("model_invoked", "model_runtime", payload, job_id=None)
+
+        assert event["event_id"] is not None
+        assert event["job_id"] is None
+        assert event["event_type"] == "model_invoked"
+        assert event["payload"] == payload
+
+        # Queryable by event_type since job_id is None
+        rows = audit_events.query_by_event_type("model_invoked")
+        assert len(rows) == 1
+        assert rows[0]["job_id"] is None
+        assert json.loads(rows[0]["payload"]) == payload
+
+    @pytest.mark.asyncio
+    async def test_emit_model_invoked_with_job_id_allowed(self, temp_db, sample_job_id):
+        """emit() with model_invoked and a job_id also succeeds (in-Job path)."""
+        payload = {
+            "resource_type": "reasoning",
+            "model_identifier": "test-model",
+            "prompt_tokens": 10,
+            "completion_tokens": 20,
+            "duration_ms": 100,
+        }
+        event = await emit("model_invoked", "model_runtime", payload, job_id=sample_job_id)
+        assert event["job_id"] == sample_job_id
+
+    @pytest.mark.asyncio
     async def test_emit_invalid_event_type_raises(self, temp_db, sample_job_id):
         """emit() with invalid event_type raises ValueError and persists nothing."""
         with pytest.raises(ValueError, match="Invalid event_type"):
