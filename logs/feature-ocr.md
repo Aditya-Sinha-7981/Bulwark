@@ -194,3 +194,24 @@ python -m pytest tests/test_document_processing.py -q
 
 **Supersedes / references:** None — environment/dependency correction on top of Entry 5; the code itself is untouched.
 
+
+---
+
+### Entry 7 — 2026-09-12 11:55 — OCR cold-start vs the 60s pass timeout; models now cached, no code change (branch `fix/model-runtime-num-ctx-and-timeout`)
+
+**What changed:** Repo: nothing. Environment: PP-OCR model weights are now cached in `~/.paddlex/official_models/` (PP-OCRv6_medium_det, PP-OCRv6_medium_rec) and a manual pre-warm verified real timings.
+
+**Why:** After the Python 3.12 venv fix (Entry 6), Workflow A's `extract_document` failed with `ExtractDocumentError: OCR pass exceeded 60s` (job `ecf24ba0`, 2026-09-12). Cause: `OCR_PASS_TIMEOUT_SECONDS = 60` (`backend/domain/document_processing/ocr.py:19`) wraps `run_ocr` *including* `OCREngine._initialize()` — and the very first initialization downloads the PP-OCR model weights, which cannot fit in 60s. The download did complete anyway: `asyncio.wait_for(asyncio.to_thread(run_ocr, ...))` cannot cancel a running thread, so the timed-out OCR threads kept executing in the background and populated the cache. Measured after warm-up (pre-warm script, same uploaded report): init 0.9s, first inference 14.7s, warm inference 14.2s — well within the 60s pass cap and the 120s `extract_document.timeout_seconds` total budget.
+
+**How to verify:**
+- `ls ~/.paddlex/official_models/` shows the PP-OCRv6 model dirs.
+- Re-run Workflow A in a FRESH conversation: the capability step should succeed (~15-20s) with no timeout error event.
+
+**Open issues / known gaps:**
+- Cold machine = race again: a fresh checkout/demo machine downloading PP-OCR weights inside a live 60s-capped job will time out. Pre-warm before the demo (one `PaddleOCR(...).predict(tiny_image)` run in the venv), or raise `OCR_PASS_TIMEOUT_SECONDS` if a code fix is preferred. Flagged for the SIH demo checklist — not changed now.
+- Operational hygiene: the same fresh-conversation advice applies — failed OCR history in a conversation biases the model into surrendering ("paste the text instead") on later attempts (observed in jobs `335034fe` and `ecf24ba0`, both in conversation `7ec54afb`).
+
+**Decisions made:** No code change — warm timings make the 60s cap correct; the fix is pre-warming the model cache before first use on a cold machine.
+
+**Supersedes / references:** Follows Entry 6 (venv fix); completes the Phase 4 unblock.
+
