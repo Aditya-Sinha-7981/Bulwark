@@ -9,11 +9,18 @@ export function useApi(apiFn, ...args) {
   const [error, setError] = useState(null)
   const mountedRef = useRef(true)
 
+  // Serialize args so `execute`'s identity only changes when the args VALUES
+  // change. The rest parameter allocates a fresh array on every render —
+  // using it directly in the dependency array re-ran the fetch effect on
+  // every render, hammering the endpoint in a tight loop (observed live:
+  // /api/v1/health flooded continuously, 2026-09-12).
+  const argsKey = JSON.stringify(args)
+
   const execute = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const result = await apiFn(...args)
+      const result = await apiFn(...JSON.parse(argsKey))
       if (mountedRef.current) {
         setData(result)
         setError(null)
@@ -34,7 +41,7 @@ export function useApi(apiFn, ...args) {
         setLoading(false)
       }
     }
-  }, [apiFn, args])
+  }, [apiFn, argsKey])
 
   useEffect(() => {
     mountedRef.current = true
