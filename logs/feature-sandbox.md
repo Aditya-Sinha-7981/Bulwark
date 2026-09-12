@@ -89,6 +89,31 @@ Implement the `generate_code` and `execute_code` capabilities for demo Workflow 
 
 ---
 
+### Entry 6 — 2026-09-12 12:19 — generate_code wired to the real Model Runtime; stub removed; fenced-response parsing hardened (branch `fix/model-runtime-num-ctx-and-timeout`)
+
+**What changed:**
+- `backend/domain/capabilities/generate_code.py` — `ModelRuntimeStub` deleted; `_call_model_runtime(prompt, job_id=None)` now calls the real `model_runtime.generate("code_generation", prompt, job_id=job_id)` (module-level singleton from Task 8). Resolves Open question #4 below. Module docstring's stale "not yet implemented (Task 8)" note removed. Also hardened `_parse_model_response()`: markdown code fences are stripped from the CODE: section, and a fallback path now extracts ```python fenced block(s) as code with surrounding prose as explanation — coder models emit fences despite the format instructions.
+- `backend/tests/test_generate_code_capability.py` — happy-path tests now monkeypatch `_call_model_runtime` with canned responses (hermetic, was stub-dependent); fake model signatures gained `*, job_id=None`; new `TestParseModelResponse` class (4 tests: instructed format, fenced-without-markers, fences-inside-CODE:, plain fallback).
+
+**Why:** Observed live (job `a28d1a22`, 2026-09-12, Phase 5 / Workflow B): the Orchestrator proposed `generate_code` 4× with varying args and hit malformed output 4× of ~7 steps — because the stub returned canned `2 + 2` code for a tanks-volume task (keyword fallback), the Orchestrator thrashed against a useless tool result. The trace also showed **zero `model_invoked` events for `code_generation`** — the stub never called Ollama, violating the `docs/audit.md` model_invoked contract and leaving `qwen2.5-coder:7b` unused. Sanity script against live Ollama after the fix: correct tanks script generated; the model emitted a fenced block (not the instructed CODE:/EXPLANATION: format), which the previous parser's fallback would have passed to the sandbox verbatim (`\`\`\`python` first line → guaranteed SyntaxError) — hence the parser hardening in the same change.
+
+**How to verify:**
+- `backend/.venv/bin/python -m pytest backend/tests/test_generate_code_capability.py -q` → 14 passed.
+- Full non-integration suite → 507 passed; only failure remains the pre-existing environmental dispatch test.
+- Live: run Workflow B (B1) in a fresh conversation → trace must now show `model_invoked` events with `resource_type: "code_generation"` / `qwen2.5-coder:7b` alongside the reasoning calls; generated code is fence-free.
+
+**Open issues / known gaps:**
+- The malformed-output frequency in the failing trace (4/8 turns non-JSON) was driven by the stub's useless tool result — expect improvement with real code results, but the 9B reasoning model's JSON discipline under long tool-result context remains a watch item (corrective-turn mechanism handles it; each malformed after the first costs a step).
+- Open question #1 below still stands: Docker-backed execute_code integration tests have not been run for real (needs Docker Desktop + `bulwark-sandbox:latest` built) — that's the user's Phase 5 step.
+
+**Decisions made:**
+- Reused the module-level `runtime` singleton and passed `job_id` through — matches `vision_escalation.py`'s call pattern; audit attribution per `docs/audit.md`.
+- Parser prefers the instructed CODE:/EXPLANATION: format and only falls back to fence extraction; `[]`-fence-stripping also applies when fences appear *inside* the CODE: section.
+
+**Supersedes / references:** Resolves Open question #4 (stub wiring); follows Entry 5. The stub's docstring referenced this log's known gap — now closed.
+
+---
+
 ## Open questions for the user
 1. **Docker-backed integration tests must be run for real** on a machine with Docker Desktop running and `bulwark-sandbox:latest` built, before Task 13's acceptance criteria can be considered fully met. This build only proves the tests are written correctly and the Python logic around Docker is sound; it does not prove Docker itself behaves as expected end-to-end (real `--network none` enforcement, real `--read-only` enforcement, real timeout/kill behavior under actual container startup latency, etc.).
 
