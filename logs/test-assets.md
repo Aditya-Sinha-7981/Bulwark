@@ -265,6 +265,40 @@ silently backdated, per the append-only rule (`AGENTS.md` §4.5) — the log
 history should show what actually happened, including this gap, not a
 tidied-up version of it.
 
+---
+
+### Entry 7 — 2026-09-12 21:09 — Full-stack test plan added (branch `docs/full-stack-test-plan`)
+
+**What changed:** `test-assets/full-stack-test-plan.md` (new) — the complete
+manual test pass covering all 9 backend phases from today's API session,
+restructured to weave in frontend checks per phase, with every step tagged
+**[API]** / **[UI]** / **[BOTH]**. Includes: how to run both servers (exact
+commands, prerequisites incl. PP-OCR pre-warm), per-phase expectation tables,
+standing rules (Workflow D network checks, fresh-conversation rule, Postman
+gotchas), a Model-visibility section (what exists today: per-step
+`model_invoked` attribution in traces; what doesn't: no live loaded-models
+indicator — no endpoint exposes Ollama /api/ps; flagged as an enhancement
+needing a `docs/api.md` decision), and the known frontend cosmetic gaps
+handed to the frontend owner.
+
+**Why:** The backend-API-only plan in `api_testing/README.md` predates the
+frontend. After the frontend landed and the backend fixes were merged
+(`1d3d35e`), the user asked for one consolidated plan covering both surfaces
+in a defined order.
+
+**How to verify:** File exists, references real fixtures/prompts by path, and
+its expectations match the fixes from the 2026-09-12 session (see
+`logs/feature-rag.md` Entry 8, `logs/feature-model-runtime.md` Entry 7,
+`logs/feature-orchestrator.md` Entries 4–5, `logs/feature-job-system.md`
+Entries 4–5, `logs/feature-ocr.md` Entries 6–8, `logs/feature-frontend-scaffold.md`
+Entry 5). No application code changed.
+
+**Open issues / known gaps:** The Phase 10 model-visibility enhancement is a
+proposal only — needs user + `docs/api.md` decision before anyone builds it.
+
+**Supersedes / references:** Extends Entry 6's corpus; complements (does not
+replace) `api_testing/README.md`.
+
 ## Open questions for the user
 
 None outstanding.
