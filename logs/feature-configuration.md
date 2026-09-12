@@ -197,6 +197,26 @@ resolves.
 
 ---
 
+### Entry 2 — 2026-09-12 21:42 — CORS: allow the loopback variant of the vite origin (branch `fix/cors-loopback-origins`)
+
+**What changed:**
+- `config/app.yaml` — `cors_origins: ["http://localhost:5173"]` → `["http://localhost:5173", "http://127.0.0.1:5173"]` with a comment explaining that `localhost` and `127.0.0.1` are distinct browser origins for the same dev server; both are loopback-only, consistent with `docs/security.md`.
+- `backend/tests/test_config.py:36` — assertion updated to the two-origin list.
+
+**Why:** Found live (2026-09-12, post-merge frontend bring-up): the frontend's health/network-status polls (15s/2s) kept failing with the UI showing "Backend unreachable" and dropping into simulation mode. Two stacked causes: (1) the backend wasn't running at all — the only live uvicorn was a stale Tuesday-era process (PID 18963, pre-fix Python 3.14 code) no longer listening on port 8000; it was killed and the backend restarted from current main; (2) a latent CORS gap — `CORSMiddleware` (`backend/main.py:43-48`) allows only `http://localhost:5173`, so opening the UI via `127.0.0.1:5173` (vite serves both; also port-shift to 5174 would break it) gets every request silently blocked by the browser. Fixing (2) removes the second way to reproduce the same "not working" symptom.
+
+**How to verify:**
+- `backend/.venv/bin/python -m pytest backend/tests/test_config.py -q` → 11 passed. Full suite → 509 passed.
+- Live: `curl -s -i -H "Origin: http://127.0.0.1:5173" http://127.0.0.1:8000/api/v1/health` → `access-control-allow-origin: http://127.0.0.1:5173` present (was absent before).
+
+**Open issues / known gaps:** If vite ever picks a shifted port (5173 busy → 5174), that origin is still blocked — the operator should use the standard port or extend the list. Documented in `test-assets/full-stack-test-plan.md` Phase 0.
+
+**Decisions made:** Explicit allow-list addition (both loopback origins) rather than wildcarding — keeps the zero-egress posture (`docs/security.md`), stays within loopback.
+
+**Supersedes / references:** None — first change to `app.cors_origins` since Task 2.
+
+---
+
 ## Open questions for the user
 
 None outstanding — both "Open Questions" in `tasks/2-configuration-loading.md`
