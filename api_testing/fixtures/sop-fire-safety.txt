@@ -1,0 +1,32 @@
+Standard Operating Procedure: Fire Extinguisher Inspection
+
+Document ID: SOP-FS-014
+Category: Safety
+Effective Date: 2026-01-01
+
+1. Purpose
+This procedure defines the required inspection frequency and process for
+portable fire extinguishers across all facility zones.
+
+2. Inspection Frequency
+- Visual inspection: monthly, by designated zone wardens.
+- Full maintenance inspection: annually, by a certified technician.
+- Hydrostatic testing: every 5 years for stored-pressure units, every 12
+  years for units requiring recharge testing under IS 2190.
+
+3. Visual Inspection Checklist
+- Extinguisher is in its designated location and unobstructed.
+- Pressure gauge reads in the operable (green) range.
+- Safety pin and tamper seal are intact.
+- No visible corrosion, leakage, or physical damage to the shell.
+- Inspection tag is present and signed with the current date.
+
+4. Escalation
+Any extinguisher failing a visual inspection must be tagged
+"OUT OF SERVICE" immediately and replaced with a serviced unit within
+24 hours. Failures must be logged in the facility Safety Incident Register.
+
+5. Responsible Roles
+- Zone Warden: monthly visual inspection.
+- Facilities Manager: scheduling annual certified inspection.
+- Safety Officer: hydrostatic testing compliance tracking.

@@ -460,6 +460,73 @@ def add_capability_execution(
     return capability_execution_id
 
 
+def update_capability_execution(
+    capability_execution_id: str,
+    resource_type: Optional[str] = None,
+    duration_ms: Optional[int] = None,
+) -> bool:
+    """
+    Update mutable fields on a capability execution record.
+
+    Task 15 needs the row created *before* the executor runs (so the
+    executor / Model Runtime can link `model_executions` rows to it), then
+    the measured `duration_ms` written once the executor returns. This is a
+    field setter on existing columns — no schema change (docs/data-model.md
+    #CapabilityExecution).
+
+    Returns True if a row was updated, False if not found.
+    """
+    updates = []
+    params: list = []
+
+    if resource_type is not None:
+        updates.append("resource_type = ?")
+        params.append(resource_type)
+    if duration_ms is not None:
+        updates.append("duration_ms = ?")
+        params.append(duration_ms)
+
+    if not updates:
+        return False
+
+    params.append(capability_execution_id)
+
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            f"UPDATE capability_executions SET {', '.join(updates)} "
+            "WHERE capability_execution_id = ?",
+            params,
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def list_capability_executions_by_job(job_id: str) -> List[dict]:
+    """
+    All capability executions for a job, ordered by job_step sequence.
+
+    Read helper for the Job trace / `GET /jobs/{id}` assembly (Task 15).
+    """
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            """
+            SELECT ce.*
+            FROM capability_executions ce
+            JOIN job_steps js ON js.job_step_id = ce.job_step_id
+            WHERE js.job_id = ?
+            ORDER BY js.sequence ASC
+            """,
+            (job_id,),
+        )
+        return [row_to_dict(row) for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
 def get_capability_execution(capability_execution_id: str) -> Optional[dict]:
     """
     Get a capability execution by ID.

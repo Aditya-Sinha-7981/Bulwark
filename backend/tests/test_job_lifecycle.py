@@ -1,46 +1,90 @@
 """
-Integration tests for Job lifecycle.
+Integration tests for the Job lifecycle (Task 5 skeleton + Task 15 real loop).
 
-Tests the complete job lifecycle from creation through completion via the API.
+These drive the *real* Orchestrator loop (`agent.step` + `classify_step`) and
+the real Job Manager dispatch loop, with a `FakeModelClient` injected via
+`manager.set_test_dependencies(...)` so the model turn is deterministic and no
+Ollama is required. The pre–Task-15 version of these tests asserted the stub
+Orchestrator's `"Echo: ..."` output; that stub is gone.
 """
 
 import asyncio
-import time
 import json
-import tempfile
 import sys
+import tempfile
+import time
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import pytest
 from fastapi.testclient import TestClient
 
-# Add backend to path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# Repo root on path so `backend.*` / `scripts.*` resolve when pytest is invoked directly.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from backend.main import app
 from backend.config import settings
-from backend.repositories import jobs as jobs_repo, conversations as conversations_repo
-from backend.repositories.db import get_connection
 from backend.domain.audit.events import get_events_for_job
+from backend.domain.capabilities.registry import CapabilityRegistry
+from backend.domain.job_manager import manager
+from backend.models.schemas import GenerationResult
+from backend.repositories import (
+    artifacts as artifacts_repo,
+    conversations as conversations_repo,
+    jobs as jobs_repo,
+)
+from backend.repositories.db import get_connection
 import scripts.init_db as init_db
 
 
-def create_temp_db():
-    """Create a temporary database and return its path."""
+CAPABILITIES_CONFIG = {
+    "capabilities": {
+        "extract_document": {"enabled": True, "timeout_seconds": 120, "max_file_size_mb": 10},
+        "search_knowledge_base": {"enabled": True, "timeout_seconds": 10, "default_top_k": 5},
+        "generate_code": {"enabled": True, "timeout_seconds": 30},
+        "execute_code": {"enabled": True, "timeout_seconds": 30, "cpu_limit": 1, "memory_limit_mb": 512, "max_output_bytes": 65536},
+        "create_docx": {"enabled": True, "timeout_seconds": 15},
+        "create_xlsx": {"enabled": True, "timeout_seconds": 15},
+    }
+}
+
+ANSWER = "The maintenance window is 02:00–04:00 UTC on the first Sunday."
+
+
+class FakeModelClient:
+    """Returns scripted raw model outputs, one per `generate` call."""
+
+    def __init__(self, responses: List[str]):
+        self._responses = responses
+        self._i = 0
+        self.calls: List[Dict[str, Any]] = []
+
+    async def generate(
+        self,
+        resource_type: str,
+        prompt: str,
+        *,
+        images: Optional[List[bytes]] = None,
+        options: Optional[Dict[str, Any]] = None,
+    ) -> GenerationResult:
+        self.calls.append({"resource_type": resource_type, "prompt": prompt})
+        text = self._responses[self._i] if self._i < len(self._responses) else "{}"
+        self._i += 1
+        return GenerationResult(text=text, prompt_tokens=10, completion_tokens=5, duration_ms=1)
+
+
+def create_temp_db() -> Path:
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         db_path = Path(f.name)
-
-    original_get_db_path = init_db.get_db_path
+    original = init_db.get_db_path
     init_db.get_db_path = lambda: db_path
     init_db.main()
-    init_db.get_db_path = original_get_db_path
-
+    init_db.get_db_path = original
     return db_path
 
 
 @pytest.fixture
 def temp_db():
-    """Create a temporary database for testing."""
     db_path = create_temp_db()
     yield db_path
     if db_path.exists():
@@ -49,301 +93,178 @@ def temp_db():
 
 @pytest.fixture
 def client(temp_db):
-    """Create a test client with patched database."""
-    # Patch all repository connections to use temp DB
-    original_jobs_conn = jobs_repo.get_connection
-    original_conv_conn = conversations_repo.get_connection
-    original_audit_conn = get_connection  # from audit_events
-
-    # Need to patch the db module's get_connection for audit events
     import backend.repositories.db as db_module
-    original_db_conn = db_module.get_connection
-
-    jobs_repo.get_connection = lambda: get_connection(temp_db)
-    conversations_repo.get_connection = lambda: get_connection(temp_db)
-    db_module.get_connection = lambda: get_connection(temp_db)
-
-    # Also need to patch audit events repo
     import backend.repositories.audit_events as audit_events_repo
-    original_audit_events_conn = audit_events_repo.get_connection
-    audit_events_repo.get_connection = lambda: get_connection(temp_db)
+
+    originals = {
+        "jobs": jobs_repo.get_connection,
+        "conv": conversations_repo.get_connection,
+        "artifacts": artifacts_repo.get_connection,
+        "db": db_module.get_connection,
+        "audit": audit_events_repo.get_connection,
+    }
+    patched = lambda: get_connection(temp_db)
+    jobs_repo.get_connection = patched
+    conversations_repo.get_connection = patched
+    artifacts_repo.get_connection = patched
+    db_module.get_connection = patched
+    audit_events_repo.get_connection = patched
+
+    # Deterministic Orchestrator: a single direct answer, no capability.
+    manager.set_test_dependencies(
+        model_client=FakeModelClient([json.dumps({"action": "respond", "content": ANSWER})]),
+        registry=CapabilityRegistry(CAPABILITIES_CONFIG),
+        capabilities_config=CAPABILITIES_CONFIG,
+    )
 
     with TestClient(app) as test_client:
         yield test_client
 
-    jobs_repo.get_connection = original_jobs_conn
-    conversations_repo.get_connection = original_conv_conn
-    db_module.get_connection = original_db_conn
-    audit_events_repo.get_connection = original_audit_events_conn
+    manager.reset_test_dependencies()
+    jobs_repo.get_connection = originals["jobs"]
+    conversations_repo.get_connection = originals["conv"]
+    artifacts_repo.get_connection = originals["artifacts"]
+    db_module.get_connection = originals["db"]
+    audit_events_repo.get_connection = originals["audit"]
+
+
+def _wait_terminal(job_id: str, timeout: float = 10.0) -> dict:
+    waited = 0.0
+    while waited < timeout:
+        job = jobs_repo.get_job(job_id)
+        if job and job["status"] in ("completed", "failed"):
+            return job
+        time.sleep(0.05)
+        waited += 0.05
+    return jobs_repo.get_job(job_id)
+
+
+def _create_job(client, conv_id: str, message: str = "When is the maintenance window?") -> str:
+    resp = client.post(
+        "/api/v1/jobs",
+        json={"conversation_id": conv_id, "message": message, "document_ids": []},
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["job_id"]
 
 
 def test_create_job_returns_201_and_creates_row(client, temp_db):
-    """POST /api/v1/jobs -> 201 with documented body; jobs row exists; job_created event persisted."""
     conv_id = conversations_repo.create_conversation()
-
-    response = client.post(
+    resp = client.post(
         "/api/v1/jobs",
-        json={
-            "conversation_id": conv_id,
-            "message": "Test message",
-            "document_ids": [],
-        },
+        json={"conversation_id": conv_id, "message": "Test message", "document_ids": []},
     )
-
-    assert response.status_code == 201
-    data = response.json()
-    assert "job_id" in data
+    assert resp.status_code == 201
+    data = resp.json()
     assert data["status"] == "created"
-    assert "created_at" in data
+    assert "job_id" in data and "created_at" in data
 
-    job_id = data["job_id"]
-    job = jobs_repo.get_job(job_id)
+    job = jobs_repo.get_job(data["job_id"])
     assert job is not None
-    # Job may already be running/completed due to TestClient running background tasks synchronously
-    assert job["status"] in ("created", "running", "completed")
-    # If completed, verify it completed successfully
-    if job["status"] == "completed":
-        assert job["final_message"] is not None
-        assert job["error_code"] is None
     assert job["input_message"] == "Test message"
     assert job["conversation_id"] == conv_id
 
-    events = asyncio.run(get_events_for_job(job_id))
-    job_created_events = [e for e in events if e["event_type"] == "job_created"]
-    assert len(job_created_events) == 1
-    assert job_created_events[0]["payload"]["conversation_id"] == conv_id
-    assert job_created_events[0]["payload"]["input_message"] == "Test message"
+    events = asyncio.run(get_events_for_job(data["job_id"]))
+    created = [e for e in events if e["event_type"] == "job_created"]
+    assert len(created) == 1
+    assert created[0]["payload"]["input_message"] == "Test message"
 
 
 def test_job_completes_with_final_message(client, temp_db):
-    """After background run: GET /jobs/{id} -> status: completed, final_message set, artifact_ids: [], error: null."""
     conv_id = conversations_repo.create_conversation()
+    job_id = _create_job(client, conv_id)
 
-    response = client.post(
-        "/api/v1/jobs",
-        json={
-            "conversation_id": conv_id,
-            "message": "Test message",
-            "document_ids": [],
-        },
-    )
-
-    job_id = response.json()["job_id"]
-
-    max_wait = 10.0
-    poll_interval = 0.1
-    waited = 0.0
-    while waited < max_wait:
-        job = jobs_repo.get_job(job_id)
-        if job and job["status"] == "completed":
-            break
-        time.sleep(poll_interval)
-        waited += poll_interval
-
-    job = jobs_repo.get_job(job_id)
-    assert job is not None
+    job = _wait_terminal(job_id)
     assert job["status"] == "completed"
-    assert job["final_message"] is not None
-    assert "Echo: Test message" in job["final_message"]
+    assert job["final_message"] == ANSWER
     assert job["error_code"] is None
-    assert job["error_message"] is None
 
-    response = client.get(f"/api/v1/jobs/{job_id}")
-    assert response.status_code == 200
-    data = response.json()
+    data = client.get(f"/api/v1/jobs/{job_id}").json()
     assert data["status"] == "completed"
-    assert data["final_message"] is not None
+    assert data["final_message"] == ANSWER
     assert data["artifact_ids"] == []
     assert data["error"] is None
 
 
 def test_job_step_created_orchestrator_reasoning(client, temp_db):
-    """A job_steps row exists: kind: orchestrator_reasoning, status: succeeded; no capability_executions row."""
     conv_id = conversations_repo.create_conversation()
-
-    response = client.post(
-        "/api/v1/jobs",
-        json={
-            "conversation_id": conv_id,
-            "message": "Test message",
-            "document_ids": [],
-        },
-    )
-
-    job_id = response.json()["job_id"]
-
-    max_wait = 10.0
-    poll_interval = 0.1
-    waited = 0.0
-    while waited < max_wait:
-        job = jobs_repo.get_job(job_id)
-        if job and job["status"] == "completed":
-            break
-        time.sleep(poll_interval)
-        waited += poll_interval
+    job_id = _create_job(client, conv_id)
+    _wait_terminal(job_id)
 
     steps = jobs_repo.list_job_steps(job_id)
     assert len(steps) == 1
-    step = steps[0]
-    assert step["kind"] == "orchestrator_reasoning"
-    assert step["status"] == "succeeded"
-    assert step["capability_name"] is None
-
-    cap_execs = jobs_repo.list_capability_executions_by_job_step(step["job_step_id"])
-    assert len(cap_execs) == 0
+    assert steps[0]["kind"] == "orchestrator_reasoning"
+    assert steps[0]["status"] == "succeeded"
+    assert steps[0]["capability_name"] is None
+    assert jobs_repo.list_capability_executions_by_job_step(steps[0]["job_step_id"]) == []
 
 
 def test_orchestrator_message_row_created(client, temp_db):
-    """A messages row exists: role: orchestrator, job_id set."""
     conv_id = conversations_repo.create_conversation()
-
-    response = client.post(
-        "/api/v1/jobs",
-        json={
-            "conversation_id": conv_id,
-            "message": "Test message",
-            "document_ids": [],
-        },
-    )
-
-    job_id = response.json()["job_id"]
-
-    max_wait = 10.0
-    poll_interval = 0.1
-    waited = 0.0
-    while waited < max_wait:
-        job = jobs_repo.get_job(job_id)
-        if job and job["status"] == "completed":
-            break
-        time.sleep(poll_interval)
-        waited += poll_interval
+    job_id = _create_job(client, conv_id)
+    _wait_terminal(job_id)
 
     messages = conversations_repo.list_messages(conv_id)
-    orchestrator_messages = [m for m in messages if m["role"] == "orchestrator"]
-    assert len(orchestrator_messages) == 1
-    assert orchestrator_messages[0]["job_id"] == job_id
-    assert "Echo: Test message" in orchestrator_messages[0]["content"]
+    roles = [m["role"] for m in messages]
+    assert roles == ["user", "orchestrator"]
+    orch = [m for m in messages if m["role"] == "orchestrator"][0]
+    assert orch["job_id"] == job_id
+    assert orch["content"] == ANSWER
 
 
 def test_trace_returns_ordered_events(client, temp_db):
-    """GET /jobs/{id}/trace -> events in timestamp order, including job_created and job_completed."""
     conv_id = conversations_repo.create_conversation()
+    job_id = _create_job(client, conv_id)
+    _wait_terminal(job_id)
 
-    response = client.post(
-        "/api/v1/jobs",
-        json={
-            "conversation_id": conv_id,
-            "message": "Test message",
-            "document_ids": [],
-        },
-    )
-
-    job_id = response.json()["job_id"]
-
-    max_wait = 10.0
-    poll_interval = 0.1
-    waited = 0.0
-    while waited < max_wait:
-        job = jobs_repo.get_job(job_id)
-        if job and job["status"] == "completed":
-            break
-        time.sleep(poll_interval)
-        waited += poll_interval
-
-    response = client.get(f"/api/v1/jobs/{job_id}/trace")
-    assert response.status_code == 200
-    data = response.json()
+    data = client.get(f"/api/v1/jobs/{job_id}/trace").json()
     assert data["job_id"] == job_id
-    assert "events" in data
-    events = data["events"]
-    assert len(events) >= 2
-
-    event_types = [e["event_type"] for e in events]
-    assert "job_created" in event_types
-    assert "job_completed" in event_types
-
-    timestamps = [e["timestamp"] for e in events]
+    types = [e["event_type"] for e in data["events"]]
+    assert "job_created" in types
+    assert "orchestrator_step" in types
+    assert "job_completed" in types
+    timestamps = [e["timestamp"] for e in data["events"]]
     assert timestamps == sorted(timestamps)
 
 
 def test_sse_streams_and_closes_on_job_completed(client, temp_db):
-    """GET /jobs/{id}/events streams events and closes after job_completed."""
     conv_id = conversations_repo.create_conversation()
+    job_id = _create_job(client, conv_id)
+    _wait_terminal(job_id)
 
-    response = client.post(
-        "/api/v1/jobs",
-        json={
-            "conversation_id": conv_id,
-            "message": "Test message",
-            "document_ids": [],
-        },
-    )
-
-    job_id = response.json()["job_id"]
-
-    max_wait = 10.0
-    poll_interval = 0.1
-    waited = 0.0
-    while waited < max_wait:
-        job = jobs_repo.get_job(job_id)
-        if job and job["status"] == "completed":
-            break
-        time.sleep(poll_interval)
-        waited += poll_interval
-
-    # Use replay=true to get historical events since job already completed
-    with client.stream("GET", f"/api/v1/jobs/{job_id}/events?replay=true") as sse_response:
-        assert sse_response.status_code == 200
-        events_received = []
-        for line in sse_response.iter_lines():
+    with client.stream("GET", f"/api/v1/jobs/{job_id}/events?replay=true") as sse:
+        assert sse.status_code == 200
+        received = []
+        for line in sse.iter_lines():
             if line.startswith("data: "):
-                event_data = json.loads(line[6:])
-                events_received.append(event_data)
-                if event_data["event_type"] == "job_completed":
+                received.append(json.loads(line[6:]))
+                if received[-1]["event_type"] == "job_completed":
                     break
-
-        event_types = [e["event_type"] for e in events_received]
-        assert "job_completed" in event_types
-        assert "job_created" in event_types
+    types = [e["event_type"] for e in received]
+    assert "job_created" in types
+    assert "job_completed" in types
 
 
 def test_unknown_job_returns_404(client, temp_db):
-    """GET /jobs/{unknown} -> 404 with error envelope."""
-    unknown_id = "00000000-0000-0000-0000-000000000000"
-
-    response = client.get(f"/api/v1/jobs/{unknown_id}")
-    assert response.status_code == 404
-    data = response.json()
-    assert "detail" in data
-    assert "error" in data["detail"]
-    assert data["detail"]["error"]["code"] == "not_found"
-    assert "message" in data["detail"]["error"]
-
-    response = client.get(f"/api/v1/jobs/{unknown_id}/trace")
-    assert response.status_code == 404
-
-    response = client.get(f"/api/v1/jobs/{unknown_id}/events")
-    assert response.status_code == 404
+    unknown = "00000000-0000-0000-0000-000000000000"
+    r = client.get(f"/api/v1/jobs/{unknown}")
+    assert r.status_code == 404
+    assert r.json()["detail"]["error"]["code"] == "not_found"
+    assert client.get(f"/api/v1/jobs/{unknown}/trace").status_code == 404
+    assert client.get(f"/api/v1/jobs/{unknown}/events").status_code == 404
 
 
 def test_invalid_conversation_returns_404(client, temp_db):
-    """POST /jobs with unknown conversation_id -> 404."""
-    unknown_conv = "00000000-0000-0000-0000-000000000000"
-
-    response = client.post(
+    r = client.post(
         "/api/v1/jobs",
         json={
-            "conversation_id": unknown_conv,
+            "conversation_id": "00000000-0000-0000-0000-000000000000",
             "message": "Test message",
             "document_ids": [],
         },
     )
-
-    assert response.status_code == 404
-    data = response.json()
-    assert "detail" in data
-    assert "error" in data["detail"]
-    assert data["detail"]["error"]["code"] == "not_found"
+    assert r.status_code == 404
+    assert r.json()["detail"]["error"]["code"] == "not_found"
 
 
 if __name__ == "__main__":

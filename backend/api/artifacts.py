@@ -46,7 +46,12 @@ async def download_artifact(artifact_id: str) -> FileResponse:
     if artifact is None:
         raise HTTPException(status_code=404, detail=_not_found_envelope("artifact not found"))
 
-    file_path = ARTIFACTS_ROOT / f"{artifact['artifact_id']}.{artifact['type']}"
+    # Resolve the file via the row's storage_path (docs/data-model.md#Artifact:
+    # "relative path under data/artifacts/"). The renderers currently store the
+    # file under a different id than the row's artifact_id, so reconstructing
+    # the name from artifact_id would 404 — storage_path is authoritative.
+    storage_path = artifact.get("storage_path") or f"{artifact['artifact_id']}.{artifact['type']}"
+    file_path = ARTIFACTS_ROOT / storage_path
     if not file_path.exists():
         # Should be unreachable given the atomic-write guarantee in
         # docx_renderer.py, but never serve a 200 for a missing file.
