@@ -2,7 +2,13 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { getJobTrace } from '../services/api.js'
 import { jobEventsUrl } from '../services/api.js'
 
-const TERMINAL_EVENT_TYPES = new Set(['job_completed', 'error'])
+const TERMINAL_EVENT_TYPES = new Set(['job_completed'])
+
+// Duplicate suppression: the hook fetches /trace (all persisted events) on
+// mount AND opens the SSE stream, which replays persisted events by default
+// (replay=true, backend/api/jobs.py) — without dedupe every historical event
+// renders twice (backend contract audit, 2026-09-12).
+const seenEventIds = new Set()
 
 // EventSource wrapper for GET /api/v1/jobs/{job_id}/events (SSE).
 // On mount: fetches GET /jobs/{job_id}/trace (late-join), then switches to live SSE.
@@ -17,8 +23,12 @@ export function useJobEvents(jobId) {
   const reconnectTimerRef = useRef(null)
 
   const addEvent = useCallback((event) => {
+    if (event.event_id && seenEventIds.has(event.event_id)) return
+    if (event.event_id) seenEventIds.add(event.event_id)
     setEvents((prev) => [...prev, event])
-    // Close on terminal event
+    // Close on terminal event. Only job_completed is terminal — `error`
+    // events fire on recoverable tool failures mid-job (docs/audit.md); the
+    // Job continues after them and the trace must keep streaming.
     if (TERMINAL_EVENT_TYPES.has(event.event_type)) {
       closeEventSource()
       setStatus('closed')
@@ -101,6 +111,7 @@ export function useJobEvents(jobId) {
   const reconnect = useCallback(() => {
     if (!mountedRef.current || !jobId) return
     traceFetchedRef.current = false
+    seenEventIds.clear()
     closeEventSource()
     // Small delay before reconnect to avoid tight loop
     reconnectTimerRef.current = setTimeout(() => {
@@ -113,6 +124,7 @@ export function useJobEvents(jobId) {
   useEffect(() => {
     mountedRef.current = true
     traceFetchedRef.current = false
+    seenEventIds.clear()
     setEvents([])
     setStatus('connecting')
     setError(null)

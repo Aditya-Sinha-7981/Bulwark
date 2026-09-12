@@ -130,7 +130,7 @@ export function ChatPanel({ onJobCreated, conversationId: initialConversationId 
                     {msg.content}
                   </div>
                   <div className="mt-1 text-[10px] text-txt-dim mono">
-                    {new Date(msg.timestamp).toLocaleTimeString()}
+                    {new Date(msg.created_at ?? msg.timestamp).toLocaleTimeString()}
                   </div>
                 </div>
               </div>
