@@ -114,6 +114,29 @@ Implement the `generate_code` and `execute_code` capabilities for demo Workflow 
 
 ---
 
+### Entry 7 — 2026-09-12 12:45 — execute_code never imported at runtime: stale `domain.` import (branch `fix/model-runtime-num-ctx-and-timeout`)
+
+**What changed:**
+- `backend/domain/capabilities/execute_code.py:15` — `from domain.capabilities.registry import get_registry` → `from backend.domain.capabilities.registry import get_registry`. One-line import-layout fix; no behavioral change to the executor logic.
+
+**Why:** Observed live (job `a6bd3285`, 2026-09-12, Phase 5 / Workflow B): `generate_code` now works (Entry 6), but the first real `execute_code` invocation failed with `ModuleNotFoundError: No module named 'domain'` — the step failed with exactly that message (the dispatch wraps exceptions as `f"{type(exc).__name__}: {exc}"`). Root cause: the executor module was written against the pre-`backend.`-package import layout and **only ever imported successfully under pytest** (`pytest.ini: pythonpath = . ..`), because the live server (repo root on sys.path) has no top-level `domain` package — so the module crashed at import on first dispatch. It has therefore never executed for real. The sandboxed code itself was verified clean via the DB (`job_steps.input_payload` — a simple stdlib classification script, no `domain` import); the container never ran. The model then honestly reported the failure instead of fabricating success — correct B4-style behavior.
+
+**How to verify:**
+- `backend/.venv/bin/python -c "import backend.domain.capabilities.execute_code"` → imports cleanly under the live layout.
+- `backend/.venv/bin/python -m pytest backend/tests/test_execute_code_capability.py -q` → 12 passed.
+- Full non-integration suite → 516 passed (collects the execute_code tests that previously couldn't import); only failure remains the pre-existing environmental dispatch test.
+- Live: re-run Workflow B in a fresh conversation — `execute_code` should now actually start a container; expect stdout with the computed classifications (or, if Docker Desktop isn't running / image missing, an honest structured `docker_unavailable`-style failure, not an import crash).
+
+**Open issues / known gaps:**
+- Open question #1 (Docker-backed integration tests run for real) still stands — the first successful `execute_code` run in the live environment doubles as that verification.
+- Worth a sweep for other stale-layout imports in live-dispatched modules — `rg "from domain\." backend -g '!tests'` found only this one (now fixed), but noting the pattern here since it survived until a real invocation.
+
+**Decisions made:** Minimal one-line fix; no test changes needed (the test file already imports via `backend.`).
+
+**Supersedes / references:** Follows Entry 6 — together they make Workflow B's `generate_code → execute_code` chain live for the first time.
+
+---
+
 ## Open questions for the user
 1. **Docker-backed integration tests must be run for real** on a machine with Docker Desktop running and `bulwark-sandbox:latest` built, before Task 13's acceptance criteria can be considered fully met. This build only proves the tests are written correctly and the Python logic around Docker is sound; it does not prove Docker itself behaves as expected end-to-end (real `--network none` enforcement, real `--read-only` enforcement, real timeout/kill behavior under actual container startup latency, etc.).
 
