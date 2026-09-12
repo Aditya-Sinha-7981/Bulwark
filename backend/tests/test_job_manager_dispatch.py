@@ -96,6 +96,56 @@ def _types(job_id):
 
 # --------------------------------------------------------------------------- #
 
+def test_identical_consecutive_invocation_rejected_and_job_completes(isolated_db):
+    """Second identical capability proposal is rejected before Policy (no
+    policy_decision/tool_invoked for it), a corrective turn follows, and the
+    Job still completes — the observed identical-search loop cannot recur."""
+    _install([
+        json.dumps({"action": "invoke_capability", "capability": "search_knowledge_base", "arguments": {"query": "maintenance window", "top_k": 3}}),
+        json.dumps({"action": "invoke_capability", "capability": "search_knowledge_base", "arguments": {"query": "maintenance window", "top_k": 3}}),
+        json.dumps({"action": "respond", "content": "answered without repeating the search"}),
+    ])
+    job_id = _new_job()
+    asyncio.run(manager.run_job(job_id))
+
+    job = jobs_repo.get_job(job_id)
+    assert job["status"] == "completed"
+    assert job["final_message"] == "answered without repeating the search"
+
+    types = _types(job_id)
+    assert types.count("tool_invoked") == 1      # only the first search dispatched
+    assert types.count("policy_decision") == 1   # rejection happened before Policy
+
+    steps = jobs_repo.list_job_steps(job_id)
+    failed_reasoning = [
+        s for s in steps
+        if s["kind"] == "orchestrator_reasoning" and s["status"] == "failed"
+    ]
+    assert any(
+        "identical capability invocation rejected" in (s["error_message"] or "")
+        for s in failed_reasoning
+    )
+
+
+def test_non_consecutive_identical_invocation_allowed(isolated_db):
+    """search A → search B (different args) → search A again is legal — the
+    guard only blocks *consecutive* identity, not revisiting an earlier query."""
+    _install([
+        json.dumps({"action": "invoke_capability", "capability": "search_knowledge_base", "arguments": {"query": "q1", "top_k": 3}}),
+        json.dumps({"action": "invoke_capability", "capability": "search_knowledge_base", "arguments": {"query": "q2", "top_k": 3}}),
+        json.dumps({"action": "invoke_capability", "capability": "search_knowledge_base", "arguments": {"query": "q1", "top_k": 3}}),
+        json.dumps({"action": "respond", "content": "done"}),
+    ])
+    job_id = _new_job()
+    asyncio.run(manager.run_job(job_id))
+
+    job = jobs_repo.get_job(job_id)
+    assert job["status"] == "completed"
+    assert _types(job_id).count("tool_invoked") == 3
+
+
+# --------------------------------------------------------------------------- #
+
 def test_direct_respond_completes(isolated_db):
     _install([json.dumps({"action": "respond", "content": "the answer"})])
     job_id = _new_job()
@@ -243,6 +293,10 @@ def test_repeated_malformed_hits_step_limit(isolated_db):
 
 
 def test_invoke_loop_hits_step_limit(isolated_db):
+    """Identical-loop termination: the first identical proposal is rejected
+    free (corrective turn), subsequent ones count against the limit, so the
+    Job still fails with step_limit_exceeded — but only ONE executor dispatch
+    ever happens instead of one per step."""
     policy = {"policy": {"network_access_allowed": False, "max_job_steps": 3, "malformed_output_free_retries": 1}}
     _install(
         [json.dumps({"action": "invoke_capability", "capability": "search_knowledge_base", "arguments": {"query": "q"}})] * 10,
@@ -255,4 +309,4 @@ def test_invoke_loop_hits_step_limit(isolated_db):
     assert job["status"] == "failed"
     assert job["error_code"] == "step_limit_exceeded"
     cap_steps = [s for s in jobs_repo.list_job_steps(job_id) if s["kind"] == "capability_invocation"]
-    assert len(cap_steps) == 3  # exactly max_job_steps invocations, no more
+    assert len(cap_steps) == 1  # only the first proposal dispatched; the rest rejected before Policy

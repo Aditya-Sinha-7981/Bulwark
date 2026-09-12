@@ -1,8 +1,8 @@
 # logs/feature-orchestrator.md
 
-> Feature / workstream: `feature-orchestrator` (branches: `feature/orchestrator`)
+> Feature / workstream: `feature-orchestrator` (branches: `feature/orchestrator`, `fix/model-runtime-num-ctx-and-timeout`)
 > Started: 2026-09-06 by opencode/mimo-v2.5-free
-> Status: completed
+> Status: in-progress (Task 10 complete; identical-proposal loop guard on `fix/model-runtime-num-ctx-and-timeout` pending commit)
 
 ## Goal
 
@@ -74,6 +74,33 @@ backend/.venv/bin/python -m pytest backend/tests/test_orchestrator.py backend/te
 **Open issues / known gaps:** None — Issue 1 fully resolved.
 **Decisions made:** `max_job_steps` flows as: caller (Task 15) → `step(ctx, model_client, registry, max_job_steps)` → `_assemble_prompt(ctx, registry, max_job_steps)` → `build_system_prompt(registry, max_job_steps)`. The `OrchestratorContext.system_prompt` field is retained in the schema but no longer used by `step()` — the prompt is built fresh from the Registry each turn to stay in sync with capability changes.
 **Supersedes / references:** Entry 2 (this fixes the `registry._config` access identified as an open question in Entry 2).
+
+---
+
+### Entry 4 — 2026-09-12 10:45 — identical-proposal loop guard in the Job Manager dispatch loop (branch `fix/model-runtime-num-ctx-and-timeout`)
+
+**What changed:**
+- `backend/domain/job_manager/manager.py` — new `_canonical_arguments()` helper (canonical JSON, sort_keys) next to `_compact()` (manager.py:~191); `last_invocation_key` state in `run_job()` init; identical-proposal guard inserted after `proposal.capability`/`proposal.arguments` extraction and BEFORE the succeeded reasoning-step recording / Policy evaluation; `last_invocation_key` set right after the `policy_decision` emit (covers allow and deny).
+- Guard behavior: proposal with identical `(capability, arguments)` as the immediately previous capability invocation → rejected before Policy: recorded as failed `orchestrator_reasoning` `JobStep` with `error_message: "identical capability invocation rejected: ..."` and `input_payload.rejected: "identical_proposal"`; `malformed_error` set so the corrective turn carries the message (same channel as the malformed rule); first rejection free via the existing `malformed_retry_used` flag, later ones count against the step limit; step-limit failure preserved (`_fail_step_limit`).
+- `docs/agent.md` — new paragraph after the retry rule: "Identical consecutive proposals are rejected before Policy", with rationale and the B3-shape carve-out.
+- `backend/tests/test_job_manager_dispatch.py` — added `test_identical_consecutive_invocation_rejected_and_job_completes` (1 tool_invoked, 1 policy_decision, failed reasoning step carries the rejection, Job completes) and `test_non_consecutive_identical_invocation_allowed` (search A→B→A: 3 dispatches, guard doesn't over-block); updated `test_invoke_loop_hits_step_limit` (still fails with `step_limit_exceeded`, but now `len(cap_steps) == 1` — rejections count, executor dispatches don't multiply).
+
+**Why:** Observed live in job `4f3f0428` (2026-09-12, Workflow C "fire extinguisher inspection frequency" — a C2 not-covered question from the Postman collection authored for the never-ingested `api_testing/fixtures/sop-fire-safety.txt`): the Orchestrator proposed `search_knowledge_base` with byte-identical arguments 4× in a row, each identical tool result growing the prompt ~600 tokens until the (then-4096) context truncated and output went malformed, then the job died on the 120s read timeout. `docs/agent.md:81` makes convergence ("must converge, not loop indefinitely") a hard 100%-termination benchmark criterion; nothing enforced it. User approved the guard explicitly (over test-first and flag-only).
+
+**How to verify:**
+- `backend/.venv/bin/python -m pytest backend/tests/test_job_manager_dispatch.py backend/tests/test_orchestrator.py -q` — all pass except the pre-existing environmental `test_executor_error_is_failed_tool_result_not_crash` (verified failing on clean tree via `git stash`; expects uninitialised Chroma, this machine has a live seeded KB).
+- Full non-integration suite: 493 passed, 9 skipped, 1 pre-existing environmental failure.
+
+**Open issues / known gaps:**
+- `malformed_retry_used` is a single per-Job flag shared by the malformed rule and this guard — an earlier malformed output consumes the one free turn, so a later first identical-rejection counts immediately. Bounded either way; noted deliberately.
+- The guard is consecutive-only (not "any prior identical") — revisiting query A after query B is legal by design (context may have changed); the observed pathology is consecutive.
+
+**Decisions made:**
+- Rejection happens BEFORE Policy (no `policy_decision`/`tool_invoked` events for rejected turns — Policy stays purely per-capability deterministic; the guard is Job Manager loop logic, not policy).
+- `last_invocation_key` updates on deny too — identical retry of a denied call is blocked, matching `docs/agent.md:17` ("denial is final for that attempt; never retried identically").
+- No outcome carve-out: an identical retry after a FAILED invocation is also rejected (deterministic executors given identical inputs); the model must vary arguments or respond. The legitimate correction-loop shape (`generate_code → execute_code → generate_code`) is unaffected because the intervening capability breaks consecutive-identity.
+
+**Supersedes / references:** None — new behavior on top of Entry 3's contracts; `test_invoke_loop_hits_step_limit`'s `len(cap_steps) == 3` expectation is superseded by `== 1` (documented in that test's new docstring).
 
 ---
 

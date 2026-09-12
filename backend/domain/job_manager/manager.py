@@ -188,6 +188,11 @@ def _compact(obj: Any) -> str:
     return json.dumps(obj, separators=(",", ":"), default=str)
 
 
+def _canonical_arguments(arguments: Dict[str, Any]) -> str:
+    """Canonical JSON of capability arguments, for identical-proposal comparison."""
+    return json.dumps(arguments, sort_keys=True, separators=(",", ":"), default=str)
+
+
 # --------------------------------------------------------------------------- #
 # Job creation
 # --------------------------------------------------------------------------- #
@@ -408,6 +413,9 @@ async def run_job(job_id: str) -> None:
     tool_results: List[ToolResult] = []
     malformed_error: Optional[str] = None
     sequence = 0
+    # Canonical "capability:arguments" of the previous capability invocation
+    # (identical-proposal guard — docs/agent.md convergence requirement).
+    last_invocation_key: Optional[str] = None
 
     try:
         while True:
@@ -491,6 +499,49 @@ async def run_job(job_id: str) -> None:
             capability = proposal.capability
             arguments = proposal.arguments
 
+            # ---- identical-proposal guard (docs/agent.md convergence) -----------
+            # Re-invoking the same capability with identical arguments as the
+            # immediately previous invocation cannot produce new information
+            # (executors are deterministic given their inputs). Reject before
+            # Policy and give one corrective turn — same mechanics as the
+            # malformed-output rule: the first rejection is free, later ones
+            # count against the step limit. Retries with *different* arguments
+            # or interleaved different capabilities are never affected.
+            invocation_key = f"{capability}:{_canonical_arguments(arguments)}"
+            if last_invocation_key is not None and invocation_key == last_invocation_key:
+                rejection = (
+                    f"identical capability invocation rejected: '{capability}' with "
+                    "identical arguments was already the previous invocation; propose "
+                    "different arguments or respond with an answer"
+                )
+                step_id = jobs_repo.add_job_step(
+                    job_id=job_id,
+                    sequence=sequence,
+                    kind="orchestrator_reasoning",
+                    input_payload=_compact({
+                        "action": "invoke_capability",
+                        "capability": capability,
+                        "rejected": "identical_proposal",
+                    }),
+                    status="failed",
+                )
+                jobs_repo.update_job_step(
+                    job_step_id=step_id,
+                    status="failed",
+                    error_message=rejection,
+                    completed_at=_now_iso(),
+                )
+                malformed_error = rejection
+                if malformed_retry_used:
+                    step_count += 1
+                else:
+                    malformed_retry_used = True
+
+                if step_count >= max_steps:
+                    _fail_step_limit(job_id, max_steps)
+                    break
+                continue
+
             # Record the reasoning turn that produced this proposal.
             jobs_repo.add_job_step(
                 job_id=job_id,
@@ -528,6 +579,10 @@ async def run_job(job_id: str) -> None:
                 payload={"capability": capability, "decision": decided, "reason": reason},
                 job_id=job_id,
             )
+
+            # Allow, deny, or executor outcome — the invocation now counts as
+            # "the previous invocation" for the identical-proposal guard.
+            last_invocation_key = invocation_key
 
             cap_exec_id = jobs_repo.add_capability_execution(
                 job_step_id=cap_step_id,
