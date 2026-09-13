@@ -50,16 +50,63 @@ from domain.document_processing.ocr import (
 from domain.capabilities.extract_document import execute_extract_document, ExtractDocumentError
 from backend.models.schemas import ExtractDocumentInput, ExtractDocumentOutput
 from backend.domain.capabilities.registry import CapabilityRegistry
-from repositories.documents import create_document, get_document
+# `backend.repositories.documents`, not the bare `repositories.documents` —
+# the bare import resolves to a *separate* sys.modules entry (both `backend/`
+# and the repo root are on sys.path here), so patching the bare module's
+# get_connection (which nothing did) left every create_document/get_document
+# call in this file hitting the real data/db/app.db. Confirmed live: 718 of
+# 721 rows in the real `documents` table were test fixtures from this file
+# (cleaned up 2026-09-13 — logs/feature-integration.md).
+from backend.repositories.documents import create_document, get_document
 from config import settings
-
-
-client = TestClient(app)
 
 
 # ============================================================================
 # Test Fixtures
 # ============================================================================
+
+@pytest.fixture
+def temp_db(isolated_db):
+    """Isolated temp SQLite DB (conftest.py `isolated_db`), patched into
+    every repository module including `backend.repositories.documents` —
+    covers both the direct create_document()/get_document() calls in this
+    file and, via the `client` fixture below, the HTTP-level ones."""
+    return isolated_db
+
+
+@pytest.fixture
+def client(temp_db, tmp_path, monkeypatch):
+    """TestClient bound to `temp_db` — must depend on it (not just isolated_db
+    directly) so the patch is in place before any request is made.
+
+    Also isolates uploaded-file *bytes*: `backend/api/documents.py` imports
+    `uploads_path`/`UPLOADS_ROOT` by value at module load time
+    (`from backend.utils.paths import ...`), so `isolated_db` alone doesn't
+    touch it — every POST /documents in this file was writing real bytes
+    into the real data/uploads/ even after the DB rows were fixed (caught
+    live: 30 new orphaned files appeared after a single full-suite run).
+    Patches this module's own bound names, same pattern as
+    test_rag_ingestion.py's `env` fixture for the KB upload path.
+    """
+    import backend.api.documents as documents_api
+    # This file imports extract_document via the bare `domain.capabilities.*`
+    # path (line ~50), not `backend.domain.capabilities.*` — same dual-
+    # sys.path trap as the create_document/get_document import fixed above,
+    # so both module spellings need their own UPLOADS_ROOT patched.
+    import backend.domain.capabilities.extract_document as extract_document_module
+    import domain.capabilities.extract_document as extract_document_module_bare
+
+    uploads_dir = tmp_path / "uploads"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(documents_api, "UPLOADS_ROOT", uploads_dir)
+    monkeypatch.setattr(documents_api, "uploads_path", lambda doc_id, ext: uploads_dir / f"{doc_id}{ext}")
+    # extract_document.py has its own independent `from backend.utils.paths
+    # import UPLOADS_ROOT` binding — reading an uploaded file back (not just
+    # writing it) goes through this module, not backend.api.documents.
+    monkeypatch.setattr(extract_document_module, "UPLOADS_ROOT", uploads_dir)
+    monkeypatch.setattr(extract_document_module_bare, "UPLOADS_ROOT", uploads_dir)
+    return TestClient(app)
+
 
 @pytest.fixture
 def sample_image():
@@ -79,20 +126,12 @@ def sample_image():
 
 
 @pytest.fixture
-def uploaded_document(sample_image):
+def uploaded_document(client, sample_image):
     """Upload a test document and return its ID."""
     files = {"file": ("test.png", sample_image, "image/png")}
     response = client.post("/api/v1/documents", files=files)
     assert response.status_code == 201
     return response.json()["document_id"]
-
-
-@pytest.fixture
-def temp_db():
-    """Database fixture - uses the real database initialized at project root."""
-    # The database is already initialized at D:\HACKATHON\Bulwark\data\db\app.db
-    # This fixture exists for compatibility with tests that expect it.
-    pass
 
 
 
@@ -105,7 +144,7 @@ def temp_db():
 class TestUploadEndpoint:
     """Tests for POST /api/v1/documents and GET /api/v1/documents/{id}."""
 
-    def test_upload_allowed_image_png(self):
+    def test_upload_allowed_image_png(self, client):
         """Upload a PNG image → 201."""
         img = Image.new('RGB', (100, 100), color='white')
         buf = io.BytesIO()
@@ -122,7 +161,7 @@ class TestUploadEndpoint:
         assert data["content_type"] == "image/png"
         assert data["size_bytes"] > 0
 
-    def test_upload_allowed_image_jpeg(self):
+    def test_upload_allowed_image_jpeg(self, client):
         """Upload a JPEG image → 201."""
         img = Image.new('RGB', (100, 100), color='white')
         buf = io.BytesIO()
@@ -134,7 +173,7 @@ class TestUploadEndpoint:
 
         assert response.status_code == 201
 
-    def test_upload_allowed_pdf(self):
+    def test_upload_allowed_pdf(self, client):
         """Upload a PDF → 201 (scanned PDF page images are allowed)."""
         # Create a minimal PDF
         pdf_content = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"
@@ -143,7 +182,7 @@ class TestUploadEndpoint:
 
         assert response.status_code == 201
 
-    def test_upload_disallowed_mime_type(self):
+    def test_upload_disallowed_mime_type(self, client):
         """Upload a .txt file → 400 with error envelope."""
         files = {"file": ("test.txt", b"plain text", "text/plain")}
         response = client.post("/api/v1/documents", files=files)
@@ -153,7 +192,7 @@ class TestUploadEndpoint:
         assert "detail" in data
         assert data["detail"]["error"]["code"] == "INVALID_MIME_TYPE"
 
-    def test_upload_oversize_file(self):
+    def test_upload_oversize_file(self, client):
         """Upload a file exceeding max_file_size_mb → 400."""
         # Create a file larger than 10MB
         large_content = b"x" * (11 * 1024 * 1024)
@@ -164,7 +203,7 @@ class TestUploadEndpoint:
         data = response.json()
         assert data["detail"]["error"]["code"] == "FILE_TOO_LARGE"
 
-    def test_upload_empty_file(self):
+    def test_upload_empty_file(self, client):
         """Upload an empty file → 400."""
         files = {"file": ("empty.png", b"", "image/png")}
         response = client.post("/api/v1/documents", files=files)
@@ -173,7 +212,7 @@ class TestUploadEndpoint:
         data = response.json()
         assert data["detail"]["error"]["code"] == "EMPTY_FILE"
 
-    def test_get_document_metadata(self, uploaded_document):
+    def test_get_document_metadata(self, client, uploaded_document):
         """GET /api/v1/documents/{id} returns metadata."""
         response = client.get(f"/api/v1/documents/{uploaded_document}")
 
@@ -182,13 +221,13 @@ class TestUploadEndpoint:
         assert data["document_id"] == uploaded_document
         assert data["filename"] == "test.png"
 
-    def test_get_nonexistent_document(self):
+    def test_get_nonexistent_document(self, client):
         """GET nonexistent document → 404."""
         response = client.get("/api/v1/documents/00000000-0000-0000-0000-000000000000")
 
         assert response.status_code == 404
 
-    def test_list_documents_includes_uploaded(self, uploaded_document):
+    def test_list_documents_includes_uploaded(self, client, uploaded_document):
         """GET /api/v1/documents includes a just-uploaded document, most recent first."""
         response = client.get("/api/v1/documents")
 
@@ -200,14 +239,14 @@ class TestUploadEndpoint:
         # Most recent upload should be at (or near) the front of a DESC-ordered list.
         assert ids[0] == uploaded_document
 
-    def test_list_documents_respects_limit(self, uploaded_document):
+    def test_list_documents_respects_limit(self, client, uploaded_document):
         """GET /api/v1/documents?limit=1 returns at most one document."""
         response = client.get("/api/v1/documents", params={"limit": 1})
 
         assert response.status_code == 200
         assert len(response.json()["documents"]) == 1
 
-    def test_list_documents_rejects_invalid_limit(self):
+    def test_list_documents_rejects_invalid_limit(self, client):
         """GET /api/v1/documents?limit=0 → 422 (validation)."""
         response = client.get("/api/v1/documents", params={"limit": 0})
 
@@ -879,7 +918,7 @@ class TestExtractDocumentExecutor:
         assert result.warnings == []
 
     @pytest.mark.asyncio
-    async def test_execute_extract_document_success_pdf(self, temp_db):
+    async def test_execute_extract_document_success_pdf(self, temp_db, client):
         """Valid PDF document → processes pages and returns validated output."""
         # Upload a real PDF first
         pdf_content = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"
