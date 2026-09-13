@@ -183,9 +183,33 @@ The formal task had not been started when much of its glue scope was already fix
 
 ---
 
+### Entry 6 — 2026-09-13 19:55 — Documents and Created (Artifacts) pages; sidebar nav; found test suite is writing into the real database
+
+**Context:** user, driving live against the running dev stack, asked two things: (1) confirmed the inline "Browse" documents picker in ChatPanel was misleading — it showed the same global list regardless of which chat you're in (documents were never conversation-scoped in the data model to begin with), so it didn't belong inside a per-chat composer. (2) Asked for dedicated pages for "documents uploaded" and "documents created" reachable from the sidebar, rather than folding everything into an inline sidebar list (an intermediate design this entry supersedes within the same session — see below).
+
+**What changed:**
+
+- **Removed** `DocumentPicker.jsx` and its use in `ChatPanel.jsx` (the "Browse" button) — deleted, no longer used anywhere.
+- **New: `GET /api/v1/artifacts`** (list, most recent first) — `backend/repositories/artifacts.py` (`list_artifacts()`), `backend/api/artifacts.py`. No global list existed before, only `list_artifacts_by_job`. `docs/api.md` updated. Regression-tested by extending `test_e2e_workflow.py`'s existing `create_docx` test to also assert the artifact shows up in the list, most-recent-first.
+- **New pages:** `frontend/src/pages/Documents.jsx` (all uploaded documents, `GET /api/v1/documents`, polls every 10s) and a rewritten `frontend/src/pages/Artifacts.jsx` (all generated artifacts, `GET /api/v1/artifacts`, same polling pattern, each row links straight to the download endpoint) — the old `Artifacts.jsx` was a static Task 16.a mockup with a hardcoded "0 files" badge and no real data fetching; this replaces it with a real one.
+- **Real client-side page switching, added to `App.jsx`:** `page`/`setPage` local state, no router library added (kept off `package.json` — a new dependency needs sign-off per `AGENTS.md` §10, and three flat pages don't need one). `AppShell`'s `onNavigate` prop, previously a no-op stub (`() => {}`), now actually switches pages. `Sidebar.jsx`'s `NAV_ITEMS` gained `Documents` and `Created` alongside `Workbench`; `Header.jsx`'s `PAGE_META` gained a `documents` entry (`artifacts`'s title changed from "Artifacts" to "Created" to match the sidebar label).
+- `docs/frontend.md` updated: the page/layout tree, a new "Documents page" / "Created (Artifacts) page" / "Conversation history" section, and the stale "single-page app for SIH" framing corrected to describe the actual (still router-library-free) three-page structure.
+- **Intermediate design, built then superseded within this same entry:** first attempt was an inline "Documents" list embedded directly in `Sidebar.jsx` (a `DocumentsSidebar.jsx` component, `max-h-48` scrollable panel below the nav). User redirected mid-build: full pages, sidebar as navigation only. That component and its Sidebar wiring were removed before committing; mentioned here only so a reader diffing this entry's commits isn't confused by why `Sidebar.jsx` has churn beyond the final nav-items change.
+- `App.test.jsx`: the `listDocuments`/`listArtifacts`/`listConversations` mocks were missing from the shared `vi.mock('../services/api.js')` factory (added as each new component started fetching on mount and broke the suite) — this is a recurring pattern this session (documents, conversations, now artifacts) worth remembering: **any new page/component that fetches on mount needs its API function added to this mock**, or every test using `<App />` fails opaquely with "No export is defined on the mock." Renamed the stale `describe('Navigation removed - Workbench only')` block and added a test that actually navigates to both new pages.
+
+**How to verify:** `npm test -- --run` (15/15) and `npm run build` (clean). `python -m pytest backend/tests/ -q -k "not integration"` (504 passed, 1 known flake, unchanged). Manual: confirmed live against the user's own running dev stack — sidebar shows Workbench/Documents/Created, composer no longer has a "Browse" button, Documents page renders the real (if currently polluted, see below) document list, Created page cleanly shows an HTTP 404 error banner (not a crash) since the backend hadn't been restarted yet to pick up the new endpoint — confirms the error-handling path works, not just the happy path.
+
+**Found while verifying — not fixed, needs a decision:** the live Documents page showed **100 files**, almost entirely test-fixture junk (`bad.pdf`, `slow.png`, `corrupt.png`, many duplicate `test.png`/`test.pdf`, all uploaded in one batch). `backend/tests/test_document_processing.py` (and likely others using the same `client = TestClient(app)` pattern instead of an isolated-DB fixture like `bulwark_client`/`isolated_db`) writes directly into the **real** `data/db/app.db` and `data/uploads/` — every `pytest` run during this session's development polluted the user's actual document list. This is now visibly a problem now that a real page surfaces it. Flagged for the user to decide: clean up the junk rows now, and/or fix the test isolation (route document-upload tests through an isolated DB fixture) so it stops recurring — not done yet, pending the user's go-ahead since it touches the test suite's fixture architecture, not just this task's glue files.
+
+**Decisions made:** No router library added — `page` state in `App.jsx` is sufficient for three flat pages and avoids a new dependency. Documents/Artifacts pages are view-only (no attach-to-chat action from either page) — attaching a document to a message still only happens via a fresh upload in the Workbench composer, since wiring a cross-page "attach this to my active chat" action would require lifting state above `AppShell`, out of proportion for what was asked.
+
+---
+
 ## Open questions for the user
 
 All three of this section's original questions were answered during the 2026-09-13 session (see Entry 2): documents listing → added now; answer surfacing → assistant chat bubble; test approach → manual + targeted regression tests, confirmed.
+
+**New from Entry 6 — needs your call:** the backend test suite is writing into the real database (`data/db/app.db`) instead of an isolated one for several test files — want this cleaned up (delete the junk document rows) and the test isolation fixed now, or later?
 
 Carried forward, still open:
 - **Workflow A's retrieval-skip** (Entry 2) — routed to Task 9 (Orchestrator), not answerable by the project lead alone; needs the Orchestrator owner's prompt/behavior fix, then a re-run.
