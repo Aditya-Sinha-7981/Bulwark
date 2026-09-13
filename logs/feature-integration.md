@@ -233,6 +233,16 @@ The formal task had not been started when much of its glue scope was already fix
 
 ---
 
+### Entry 8 — 2026-09-13 20:20 — Knowledge Base page
+
+**What changed:** user asked, after checking the new Documents page, where their 4 ingested SOPs were — they aren't there, and hadn't been surfaced anywhere in the UI (Entry 1/6 both flagged this as an open gap; this closes it). `frontend/src/pages/KnowledgeBase.jsx` (new) — `GET /api/v1/knowledge-base` (already existed, no backend change needed), same table+filter pattern as Documents/Created (search by title, status pills All/Ready/Ingesting/Failed). Wired into `Sidebar.jsx` (fourth nav item), `Header.jsx` (`PAGE_META.knowledge` title corrected from stale "Knowledge" to "Knowledge Base" to match), and `App.jsx`. Deleted the old unused `pages/Knowledge.jsx` Task 16.a mockup — it was dead code with the same near-identical name as the new real page, which would've been a confusing pair to leave both sitting in the tree (unlike `Jobs.jsx`/`Audit.jsx`/`Settings.jsx`, left alone — no living counterpart to be confused with).
+
+**How to verify:** `npm test -- --run` (15/15, including a new sidebar-navigation assertion for the Knowledge Base page) and `npm run build` (clean). Manual: confirmed live — all 4 SOPs shown (`SOP-001` through `SOP-004`, all `status: ready`, correct chunk counts 4/3/3/4 matching what `GET /api/v1/knowledge-base` returns directly).
+
+**Decisions made:** View-only, same as Documents/Created — no ingest-from-UI or delete-from-UI action added, even though `ingestKnowledgeDocument`/`deleteKnowledgeDocument` already exist in `services/api.js`; only a viewer was asked for.
+
+---
+
 ## Open questions for the user
 
 All original questions in this section were answered during the 2026-09-13 session (see Entry 2: documents listing, answer surfacing, test approach; Entry 7: real-database cleanup and test isolation). None currently outstanding from this workstream — see Entries 2 and 3 for items still routed to other tasks (Workflow A's retrieval-skip, Workflow B's correction loop, `think:false` regression risk).
