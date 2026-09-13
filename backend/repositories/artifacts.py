@@ -95,6 +95,32 @@ def get_artifact(artifact_id: str) -> Optional[dict]:
         conn.close()
 
 
+def list_artifacts(limit: int = 50, offset: int = 0) -> List[dict]:
+    """
+    List all artifacts, most recently created first.
+
+    Args:
+        limit: Maximum number of artifacts to return.
+        offset: Number of artifacts to skip.
+
+    Returns:
+        List of artifact dicts ordered by created_at descending.
+    """
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            """
+            SELECT * FROM artifacts
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            (limit, offset),
+        )
+        return [row_to_dict(row) for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
 def list_artifacts_by_job(job_id: str) -> List[dict]:
     """
     List artifacts for a job, ordered by created_at.

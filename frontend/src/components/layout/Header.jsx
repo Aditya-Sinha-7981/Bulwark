@@ -2,9 +2,10 @@ import { Icon } from '../ui/Icon.jsx'
 
 const PAGE_META = {
   workbench: { title: 'Workbench', crumb: 'Workspace / Workbench' },
+  documents: { title: 'Documents', crumb: 'Workspace / Documents' },
   jobs: { title: 'Jobs', crumb: 'Workspace / Jobs' },
   knowledge: { title: 'Knowledge', crumb: 'Workspace / Knowledge' },
-  artifacts: { title: 'Artifacts', crumb: 'Workspace / Artifacts' },
+  artifacts: { title: 'Created', crumb: 'Workspace / Created' },
   audit: { title: 'Audit', crumb: 'System / Audit' },
   settings: { title: 'Settings', crumb: 'System / Settings' },
 }

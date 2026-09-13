@@ -1,45 +1,110 @@
+import { useEffect, useState } from 'react'
 import { PageHeader } from '../components/ui/PageHeader.jsx'
 import { EmptyState } from '../components/ui/EmptyState.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
+import { Icon } from '../components/ui/Icon.jsx'
+import { listArtifacts, artifactDownloadUrl } from '../services/api.js'
 
+const POLL_INTERVAL_MS = 10000
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
+  return `${(bytes / 1024 ** i).toFixed(i === 0 ? 0 : 1)} ${units[i]}`
+}
+
+// Artifacts the system has generated (create_docx / create_xlsx output) —
+// GET /api/v1/artifacts. Deterministically rendered from structured data,
+// per capability — the model never controls formatting (AGENTS.md §6 rule 6).
 export default function Artifacts() {
+  const [artifacts, setArtifacts] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const fetchArtifacts = () => {
+      listArtifacts({ limit: 100 })
+        .then((res) => {
+          if (!cancelled) {
+            setArtifacts(res.artifacts ?? [])
+            setError(null)
+          }
+        })
+        .catch((err) => {
+          if (!cancelled) setError(err?.message ?? 'Failed to load artifacts')
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false)
+        })
+    }
+    fetchArtifacts()
+    const interval = setInterval(fetchArtifacts, POLL_INTERVAL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [])
+
   return (
     <div className="mx-auto max-w-[1400px]">
       <PageHeader
-        title="Artifacts"
-        description="Generated deliverables from completed tasks."
-      />
-
-      <div className="mb-5 flex flex-wrap items-center gap-2">
-        <Badge tone="purple" icon="artifacts">
-          DOCX / XLSX / Markdown
+        title="Created"
+        description="Generated deliverables from completed tasks — rendered deterministically, never model-formatted."
+      >
+        <Badge tone="purple" dot={false} icon="artifacts">
+          {artifacts.length} file{artifacts.length !== 1 ? 's' : ''}
         </Badge>
-        <Badge tone="gray">0 files</Badge>
-      </div>
+      </PageHeader>
 
-      <EmptyState
-        icon="artifacts"
-        title="No artifacts yet"
-        description="Artifacts are rendered deterministically from structured data — the model never controls formatting. Run a task in the Workbench that generates a report and it will appear here for download."
-      />
+      {error && (
+        <div className="mb-4 rounded-lg border border-danger/30 bg-danger-soft px-4 py-2 text-sm text-danger">
+          {error}
+        </div>
+      )}
 
-      <div className="mt-5 grid gap-4 lg:grid-cols-3">
-        {[
-          { type: 'DOCX', note: 'Approval notes, structured findings', icon: 'file' },
-          { type: 'XLSX', note: 'Tabular extracts, inspection data', icon: 'file' },
-          { type: 'Markdown', note: 'Summaries, quick deliverables', icon: 'file' },
-        ].map((kind) => (
-          <div key={kind.type} className="card p-4">
-            <Badge tone="purple" dot={false} className="mb-2">
-              {kind.type}
-            </Badge>
-            <p className="text-sm text-txt-low">{kind.note}</p>
-            <div className="mono mt-2 text-[11px] text-txt-dim">
-              backend: GET /api/v1/artifacts/{"{id}"}/download
-            </div>
-          </div>
-        ))}
-      </div>
+      {loading && artifacts.length === 0 && !error && (
+        <div className="card flex min-h-[200px] items-center justify-center text-txt-dim">
+          Loading…
+        </div>
+      )}
+
+      {!loading && !error && artifacts.length === 0 && (
+        <EmptyState
+          icon="artifacts"
+          title="No artifacts yet"
+          description="Run a task in the Workbench that generates a report (DOCX/XLSX) and it will appear here for download."
+        />
+      )}
+
+      {artifacts.length > 0 && (
+        <div className="grid gap-3 lg:grid-cols-2">
+          {artifacts.map((art) => (
+            <a
+              key={art.artifact_id}
+              href={artifactDownloadUrl(art.artifact_id)}
+              download={art.filename}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="card flex items-center gap-3 p-4 hover:border-accent/40 hover:bg-elevated transition-colors"
+            >
+              <div className="p-2 rounded-lg bg-band-soft text-band shrink-0">
+                <Icon name="file" size={20} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-txt-hi">{art.filename}</p>
+                <div className="mt-1 flex items-center gap-2 text-[11px] text-txt-dim mono">
+                  <span>{art.type?.toUpperCase()}</span>
+                  <span>{formatBytes(art.size_bytes)}</span>
+                  <span>{new Date(art.created_at).toLocaleString()}</span>
+                </div>
+              </div>
+              <Icon name="download" size={16} className="text-txt-low shrink-0" />
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

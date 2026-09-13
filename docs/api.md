@@ -143,6 +143,16 @@ Response `200`:
 
 Metadata for an uploaded document (not its raw bytes — see artifact download pattern below for retrieving bytes if needed).
 
+### `GET /api/v1/artifacts`
+
+List all generated artifacts, most recently created first.
+
+Query params: `limit` (default 50, max 200), `offset` (default 0).
+Response `200`:
+```json
+{ "artifacts": [ { "artifact_id": "uuid", "job_id": "uuid", "type": "docx | xlsx | pptx", "filename": "string", "created_at": "iso8601", "size_bytes": 12345 } ] }
+```
+
 ### `GET /api/v1/artifacts/{artifact_id}`
 
 Artifact metadata.

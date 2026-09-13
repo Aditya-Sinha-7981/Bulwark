@@ -6,24 +6,33 @@
 
 ## Page/layout structure
 
+Originally a single-page app (`Workbench` only) for SIH; the Sidebar now
+switches between three real pages via local state in `App.jsx` (no router
+library added — `page`/`setPage` passed down through `AppShell`). `Jobs.jsx`,
+`Knowledge.jsx`, `Audit.jsx`, `Settings.jsx` remain unwired mockups, not
+listed below.
+
 ```
 frontend/
 ├── src/
-│   ├── App.jsx
+│   ├── App.jsx                    # owns `page` state, switches Workbench/Documents/Artifacts
 │   ├── main.jsx
 │   ├── pages/
-│   │   └── Workbench.jsx          # single-page app for SIH — chat + trace + artifacts
+│   │   ├── Workbench.jsx          # chat + live trace + artifacts + RAG evidence, for one Job
+│   │   ├── Documents.jsx          # all uploaded documents (GET /api/v1/documents), cross-chat
+│   │   └── Artifacts.jsx          # all generated artifacts (GET /api/v1/artifacts), cross-chat
 │   ├── components/
 │   │   ├── ChatPanel.jsx          # message history + input, file upload
+│   │   ├── ConversationHistory.jsx # resume a past conversation (GET /api/v1/conversations)
 │   │   ├── JobTracePanel.jsx      # live execution trace (SSE-driven)
-│   │   ├── CapabilityActivity.jsx # renders one trace event (tool_invoked, model_invoked, etc.)
-│   │   ├── ArtifactPanel.jsx      # generated files, download links
+│   │   ├── CapabilityActivity.jsx # renders one trace event (tool_invoked, tool_result, model_invoked, etc.)
+│   │   ├── ArtifactPanel.jsx      # generated files for the current Job, download links
 │   │   ├── RagEvidencePanel.jsx   # retrieval results for the current Job
-│   │   ├── SovereigntyIndicator.jsx  # network-status panel (api.md#network-status)
+│   │   ├── SovereigntyIndicator.jsx  # network-status badge (api.md#network-status), in StatusBar
 │   │   ├── UploadButton.jsx
 │   │   └── ErrorBanner.jsx
 │   ├── hooks/
-│   │   ├── useJobEvents.js        # SSE subscription for a job_id
+│   │   ├── useJobEvents.js        # SSE subscription for a job_id (owned by Workbench, shared down)
 │   │   └── useApi.js              # thin fetch wrapper for api.md endpoints
 │   └── services/
 │       └── api.js                 # one function per api.md endpoint — no fetch() calls elsewhere
@@ -38,6 +47,18 @@ frontend/
 ## Uploads
 
 `UploadButton` calls `POST /api/v1/documents`, stores the returned `document_id`, attaches it to the next Job creation request. No client-side file processing — the file goes straight to the backend.
+
+## Documents page
+
+`Documents.jsx` — every uploaded document across all conversations (`GET /api/v1/documents`), since documents aren't scoped to a conversation in the data model. A simple table (filename, type, size, uploaded_at), polling every 10s. View-only — attaching a document to a message still happens via `UploadButton` in the Workbench composer.
+
+## Created (Artifacts) page
+
+`Artifacts.jsx` — every generated artifact across all Jobs (`GET /api/v1/artifacts`), each linking to `GET /api/v1/artifacts/{id}/download`. Same polling pattern as the Documents page.
+
+## Conversation history
+
+`ConversationHistory` — a dropdown (`GET /api/v1/conversations`) listing past conversations with a preview of the first message, most recently active first. Selecting one resumes it in the Workbench (drops to the empty-state composer with that conversation's full history loaded above it — no separate "history view" mode). "New chat" resets to a fresh, empty conversation.
 
 ## Job execution panel / live trace
 

@@ -137,6 +137,11 @@ export async function getArtifact(artifactId) {
   return request(`/artifacts/${artifactId}`)
 }
 
+// GET /api/v1/artifacts — list all generated artifacts, most recent first.
+export async function listArtifacts({ limit = 50, offset = 0 } = {}) {
+  return request(`/artifacts?limit=${limit}&offset=${offset}`)
+}
+
 // GET /api/v1/artifacts/{artifact_id}/download — raw file bytes.
 export function artifactDownloadUrl(artifactId) {
   return `${API_ROOT}/artifacts/${artifactId}/download`

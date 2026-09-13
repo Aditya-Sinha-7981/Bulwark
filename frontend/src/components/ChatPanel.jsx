@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react'
 import { useApiMutation } from '../hooks/useApi'
 import { createConversation, getConversation, createJob } from '../services/api'
 import { UploadButton } from './UploadButton'
-import { DocumentPicker } from './DocumentPicker'
 import { Icon } from './ui/Icon'
 import { ErrorBanner } from './ErrorBanner'
 
@@ -255,7 +254,6 @@ export function ChatPanel({ onJobCreated, onConversationCreated, conversationId:
               aria-label="Prompt"
             />
             <UploadButton onDocumentUploaded={handleAttachDocument} disabled={loading} />
-            <DocumentPicker onSelectDocument={handleAttachDocument} disabled={loading} />
           </div>
 
           <div className="flex items-center justify-between">

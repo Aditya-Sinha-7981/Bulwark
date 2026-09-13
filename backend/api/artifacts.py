@@ -7,10 +7,10 @@ nothing here is docx-specific except the media type fallback.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 
-from backend.repositories.artifacts import get_artifact
+from backend.repositories.artifacts import get_artifact, list_artifacts
 from backend.utils.paths import ARTIFACTS_ROOT
 
 router = APIRouter(prefix="/artifacts", tags=["artifacts"])
@@ -20,6 +20,31 @@ def _not_found_envelope(message: str) -> dict:
     # Per docs/api.md "Error format":
     # {"error": {"code": "string_error_code", "message": "human-readable message", "details": {}}}
     return {"error": {"code": "not_found", "message": message, "details": {}}}
+
+
+@router.get("")
+async def list_artifacts_endpoint(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> dict:
+    """List all generated artifacts, most recently created first.
+
+    Response 200: `{ "artifacts": [ { artifact_id, job_id, type, filename, created_at, size_bytes } ] }`.
+    """
+    artifacts = list_artifacts(limit=limit, offset=offset)
+    return {
+        "artifacts": [
+            {
+                "artifact_id": a["artifact_id"],
+                "job_id": a["job_id"],
+                "type": a["type"],
+                "filename": a["filename"],
+                "created_at": a["created_at"],
+                "size_bytes": a["size_bytes"],
+            }
+            for a in artifacts
+        ]
+    }
 
 
 @router.get("/{artifact_id}")

@@ -1,8 +1,9 @@
 import { Icon } from '../ui/Icon.jsx'
 
-// SIH Demo: Workbench-only sidebar
 const NAV_ITEMS = [
   { id: 'workbench', label: 'Workbench', icon: 'workbench' },
+  { id: 'documents', label: 'Documents', icon: 'file' },
+  { id: 'artifacts', label: 'Created', icon: 'artifacts' },
 ]
 
 export function Sidebar({ current, onNavigate, open, onClose, healthState }) {
@@ -35,8 +36,8 @@ export function Sidebar({ current, onNavigate, open, onClose, healthState }) {
           </div>
         </div>
 
-        {/* Navigation - Workbench only for SIH demo */}
-        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4" aria-label="Main">
+        {/* Navigation */}
+        <nav className="space-y-1 px-3 py-4" aria-label="Main">
           <div className="label px-2 pb-2">Workspace</div>
           {NAV_ITEMS.map((item) => {
             const active = current === item.id
@@ -64,7 +65,7 @@ export function Sidebar({ current, onNavigate, open, onClose, healthState }) {
         </nav>
 
         {/* Connection card */}
-        <div className="border-t border-line p-3">
+        <div className="mt-auto border-t border-line p-3">
           <div
             className={`rounded-lg border px-3 py-2.5 ${
               connected ? 'border-ok/30 bg-ok-soft/60' : 'border-danger/30 bg-danger-soft'
