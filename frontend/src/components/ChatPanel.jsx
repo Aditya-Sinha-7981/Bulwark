@@ -2,24 +2,33 @@ import { useState, useEffect, useRef } from 'react'
 import { useApiMutation } from '../hooks/useApi'
 import { createConversation, getConversation, createJob } from '../services/api'
 import { UploadButton } from './UploadButton'
+import { DocumentPicker } from './DocumentPicker'
 import { Icon } from './ui/Icon'
 import { ErrorBanner } from './ErrorBanner'
 
 // Chat panel — message history + input + file upload.
 // On submit: ensures conversation exists, creates Job, returns jobId.
-export function ChatPanel({ onJobCreated, conversationId: initialConversationId }) {
+// `job` (optional): the current Job's state from GET /jobs/{id}, as polled by
+// the parent — used to know when to refetch history so the orchestrator's
+// final_message (persisted server-side as a conversation message on job
+// completion, backend/domain/job_manager/manager.py) actually shows up as a
+// chat bubble instead of only existing in the trace panel.
+export function ChatPanel({ onJobCreated, onConversationCreated, conversationId: initialConversationId, job }) {
   const [conversationId, setConversationId] = useState(initialConversationId ?? null)
   const [messages, setMessages] = useState([])
   const [inputValue, setInputValue] = useState('')
   const [attachedDocumentIds, setAttachedDocumentIds] = useState([])
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [errors, setErrors] = useState([])
+  const [refreshKey, setRefreshKey] = useState(0)
   const messagesEndRef = useRef(null)
+  const settledJobIdRef = useRef(null)
 
   const { mutate: createConv, loading: creatingConv } = useApiMutation(createConversation)
   const { mutate: createJobMutation, loading: creatingJob } = useApiMutation(createJob)
 
-  // Load conversation history when conversationId changes
+  // Load conversation history whenever conversationId changes, or a refresh
+  // is requested (job created / job settled — see effect below).
   useEffect(() => {
     if (!conversationId) return
     setLoadingHistory(true)
@@ -31,7 +40,28 @@ export function ChatPanel({ onJobCreated, conversationId: initialConversationId 
         setErrors((prev) => [...prev, { code: err.status, message: err.message, details: err.details }])
       })
       .finally(() => setLoadingHistory(false))
-  }, [conversationId])
+  }, [conversationId, refreshKey])
+
+  // Refetch when the active job reaches a terminal state, so the
+  // orchestrator's final_message (appended as a conversation message on the
+  // backend at completion time) appears as a chat bubble. Guarded by
+  // settledJobIdRef so a single completed job only triggers this once.
+  //
+  // The backend updates the Job row to status="completed" BEFORE appending
+  // the orchestrator's message to the conversation (two sequential DB calls
+  // in backend/domain/job_manager/manager.py, no transaction between them) —
+  // a poll that lands in that gap sees "completed" with the message not yet
+  // there. Observed live: the first refetch's response had only the user's
+  // message even though the job was already "completed". A second refetch
+  // shortly after closes that window without depending on backend ordering.
+  useEffect(() => {
+    if (!job || (job.status !== 'completed' && job.status !== 'failed')) return
+    if (settledJobIdRef.current === job.job_id) return
+    settledJobIdRef.current = job.job_id
+    setRefreshKey((k) => k + 1)
+    const retryTimer = setTimeout(() => setRefreshKey((k) => k + 1), 1500)
+    return () => clearTimeout(retryTimer)
+  }, [job])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -65,16 +95,29 @@ export function ChatPanel({ onJobCreated, conversationId: initialConversationId 
         const conv = await createConv()
         convId = conv.conversation_id
         setConversationId(convId)
+        // Lift the new conversation_id to the parent (Workbench) — it owns
+        // the `conversationId` it hands back down as a prop, and without
+        // this it stays null there forever, so the next mount of ChatPanel
+        // (e.g. when Workbench switches from its empty-state layout to the
+        // active chat+trace layout on job creation) starts with no
+        // conversation and never fetches history (Task 17 integration
+        // finding: chat history/final answer never appeared in the browser).
+        onConversationCreated?.(convId)
       }
 
-      const job = await createJobMutation({
+      const createdJob = await createJobMutation({
         conversationId: convId,
         message,
         documentIds: attachedDocumentIds,
       })
 
       setAttachedDocumentIds([])
-      onJobCreated?.(job.job_id)
+      settledJobIdRef.current = null
+      // Refetch history so the user's own message (persisted server-side as
+      // part of Job creation) shows up immediately rather than only on the
+      // next terminal-state refresh.
+      setRefreshKey((k) => k + 1)
+      onJobCreated?.(createdJob.job_id)
     } catch (err) {
       setErrors((prev) => [...prev, { code: err.status, message: err.message, details: err.details }])
     }
@@ -180,6 +223,7 @@ export function ChatPanel({ onJobCreated, conversationId: initialConversationId 
               aria-label="Prompt"
             />
             <UploadButton onDocumentUploaded={handleAttachDocument} disabled={loading} />
+            <DocumentPicker onSelectDocument={handleAttachDocument} disabled={loading} />
           </div>
 
           <div className="flex items-center justify-between">

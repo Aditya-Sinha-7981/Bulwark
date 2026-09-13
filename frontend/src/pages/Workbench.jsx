@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useApi, useApiMutation } from '../hooks/useApi'
+import { useJobEvents } from '../hooks/useJobEvents'
 import { getHealth, getJob, getNetworkStatus } from '../services/api'
 import { ChatPanel } from '../components/ChatPanel'
 import { JobTracePanel } from '../components/JobTracePanel'
@@ -161,6 +162,10 @@ export function Workbench({ healthState }) {
     setJobData(null)
   }, [])
 
+  const handleConversationCreated = useCallback((convId) => {
+    setConversationId(convId)
+  }, [])
+
   const handleError = useCallback((err) => {
     setErrors((prev) => [...prev, err])
   }, [])
@@ -179,6 +184,11 @@ export function Workbench({ healthState }) {
 
   // Get artifact IDs from job data
   const artifactIds = jobData?.artifact_ids ?? []
+
+  // Single SSE subscription for the active job, shared by JobTracePanel and
+  // RagEvidencePanel (both need the same event list — one lit the trace, the
+  // other scans it for search_knowledge_base results).
+  const jobEvents = useJobEvents(simMode ? null : activeJobId)
 
   return (
     <div className="mx-auto max-w-[1400px]">
@@ -290,15 +300,24 @@ export function Workbench({ healthState }) {
               </div>
             ) : (
               // Real ChatPanel
-              <ChatPanel onJobCreated={handleJobCreated} conversationId={conversationId} />
+              <ChatPanel onJobCreated={handleJobCreated} onConversationCreated={handleConversationCreated} conversationId={conversationId} job={jobData} />
             )}
           </div>
         </div>
       ) : (
         // Active/Completed layout - three panels
-        <div className="flex flex-col gap-6 xl:flex-row">
+        //
+        // Bounded to the viewport (minus header/topbar/statusbar) so each
+        // column scrolls internally instead of the whole page growing with
+        // trace content — a long-running Job's trace (many tool_invoked /
+        // tool_result / model_invoked events) previously stretched this row
+        // tall enough that the chat composer ended up hundreds of pixels
+        // below the fold (observed live: Workflow C's completed answer
+        // rendered, but the input to send a follow-up was unreachable
+        // without scrolling past a large empty gap — Task 17 finding).
+        <div className="flex flex-col gap-6 xl:h-[calc(100vh-220px)] xl:flex-row">
           {/* Left: Chat or Trace */}
-          <div className="min-w-0 flex-1 xl:w-1/2">
+          <div className="min-w-0 flex-1 xl:h-full xl:w-1/2">
             {simMode ? (
               // Simulation result view
               <div className="card flex flex-col h-full">
@@ -352,15 +371,23 @@ export function Workbench({ healthState }) {
               // Real ChatPanel (shows history for conversation)
               <ChatPanel
                 onJobCreated={handleJobCreated}
+                onConversationCreated={handleConversationCreated}
                 conversationId={conversationId}
+                job={jobData}
               />
             )}
           </div>
 
           {/* Right: Trace + Artifacts + RAG Evidence */}
-          <div className="w-full shrink-0 xl:w-1/2 space-y-4">
+          <div className="w-full shrink-0 space-y-4 xl:h-full xl:w-1/2 xl:overflow-y-auto">
             {/* Live Trace */}
-            <JobTracePanel jobId={simMode ? null : activeJobId} />
+            <JobTracePanel
+              jobId={simMode ? null : activeJobId}
+              events={jobEvents.events}
+              status={jobEvents.status}
+              error={jobEvents.error}
+              reconnect={jobEvents.reconnect}
+            />
 
             {/* Artifacts & RAG Evidence - stacked */}
             <div className="space-y-4">
@@ -369,7 +396,7 @@ export function Workbench({ healthState }) {
                 artifactIds={artifactIds}
               />
               <RagEvidencePanel
-                events={simMode ? [] : []} // TODO: pass real trace events when available
+                events={simMode ? [] : jobEvents.events}
               />
             </div>
           </div>
