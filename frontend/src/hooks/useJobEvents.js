@@ -52,7 +52,11 @@ export function useJobEvents(jobId) {
     try {
       const trace = await getJobTrace(jobId)
       if (mountedRef.current && trace?.events?.length) {
-        setEvents(trace.events)
+        // Route through addEvent (event_id dedupe) — the SSE stream replays
+        // persisted events by default, so pushing the trace straight into
+        // state double-rendered every event (observed live 2026-09-12:
+        // "Job created" appeared twice).
+        trace.events.forEach(addEvent)
       }
     } catch (err) {
       // Trace fetch failed — we'll rely on SSE for live events
@@ -60,7 +64,7 @@ export function useJobEvents(jobId) {
         console.warn('Failed to fetch initial trace:', err)
       }
     }
-  }, [jobId])
+  }, [jobId, addEvent])
 
   const connect = useCallback(() => {
     if (!jobId || !mountedRef.current) return
