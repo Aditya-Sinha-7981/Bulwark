@@ -4,7 +4,7 @@ const PAGE_META = {
   workbench: { title: 'Workbench', crumb: 'Workspace / Workbench' },
   documents: { title: 'Documents', crumb: 'Workspace / Documents' },
   jobs: { title: 'Jobs', crumb: 'Workspace / Jobs' },
-  knowledge: { title: 'Knowledge', crumb: 'Workspace / Knowledge' },
+  knowledge: { title: 'Knowledge Base', crumb: 'Workspace / Knowledge Base' },
   artifacts: { title: 'Created', crumb: 'Workspace / Created' },
   audit: { title: 'Audit', crumb: 'System / Audit' },
   settings: { title: 'Settings', crumb: 'System / Settings' },

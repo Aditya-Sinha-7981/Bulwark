@@ -4,6 +4,7 @@ const NAV_ITEMS = [
   { id: 'workbench', label: 'Workbench', icon: 'workbench' },
   { id: 'documents', label: 'Documents', icon: 'file' },
   { id: 'artifacts', label: 'Created', icon: 'artifacts' },
+  { id: 'knowledge', label: 'Knowledge Base', icon: 'knowledge' },
 ]
 
 export function Sidebar({ current, onNavigate, open, onClose, healthState }) {
