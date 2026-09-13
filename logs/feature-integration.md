@@ -65,11 +65,98 @@ The formal task had not been started when much of its glue scope was already fix
 
 ---
 
+### Entry 2 — 2026-09-13 06:20 — Documents listing, answer surfacing, RAG evidence binding, layout fix; manual C→A→B→D pass
+
+**What changed:**
+
+*Documents listing (Open Question from Entry 1, resolved — user approved adding the contract endpoint, confirmed they own Task 15):*
+- `backend/api/documents.py` — added `GET /api/v1/documents` (list, `limit`/`offset` query params, reuses the existing `list_documents()` repo function which was already implemented but never exposed). `docs/api.md` updated with the new endpoint contract.
+- `backend/tests/test_document_processing.py` — 3 new tests (`test_list_documents_includes_uploaded`, `test_list_documents_respects_limit`, `test_list_documents_rejects_invalid_limit`). All pass.
+- `frontend/src/services/api.js` — added `listDocuments()`.
+- `frontend/src/components/DocumentPicker.jsx` (new) — a "Browse" button next to "Attach file" in `ChatPanel` that lists previously uploaded documents and lets the user re-attach one without re-uploading. Wired into `ChatPanel.jsx`.
+
+*Answer surfacing (Open Question from Entry 1, resolved — user chose "assistant chat bubble"):*
+- Root-caused via live browser testing, not guessed: `Workbench.jsx`'s own `conversationId` state was **never updated** when `ChatPanel` created a new conversation internally — `ChatPanel` had no callback to report it back up. So when `Workbench` switched from its empty-state layout to the active chat+trace layout (on job creation), the *new* `ChatPanel` instance mounted with `conversationId=null` and never fetched history at all. Fixed by adding `onConversationCreated` prop/callback (`ChatPanel.jsx:16,105`, `Workbench.jsx` `handleConversationCreated`).
+- Second, independent bug found the same way: the `job={jobData}` prop needed for the completion-triggered refetch was added to the **empty-state** `<ChatPanel>` usage in `Workbench.jsx` but never to the **active-layout** one — the one actually rendered once a Job exists. Confirmed via a temporary `console.log` in the effect (`job` was `undefined` on every render). Fixed: `Workbench.jsx` line ~376 now passes `job={jobData}` on both usages.
+- Third bug: even with both of the above fixed, a race exists — the backend flips the Job row to `status: "completed"` *before* appending the orchestrator's message to the conversation (`backend/domain/job_manager/manager.py`, two sequential DB calls, no transaction). A poll landing in that gap sees "completed" with the answer not yet persisted. Fixed defensively, frontend-only: `ChatPanel.jsx`'s completion effect now fires an immediate refetch *and* a second one 1.5s later (`setTimeout`), closing the window without depending on backend ordering.
+- All three confirmed fixed live: ran two full conversational turns end-to-end through the browser; both the user's message and the orchestrator's final answer rendered correctly as chat bubbles both times.
+
+*RAG evidence panel binding (was a known open item — turned out to be a missing audit event, not a wiring bug):*
+- `RagEvidencePanel.jsx` was scanning `tool_invoked` events for `result.results[]`, but per `docs/audit.md`, `tool_invoked`'s payload is `{capability, arguments}` only — it never carries the result. Verified in code: `backend/domain/audit/events.py:42` and `backend/domain/job_manager/manager.py`'s actual emit call both confirm this; the real result is only ever written to `job_steps.output_payload`, never audited.
+- **User approved (after being asked, since this needed a new event type — AGENTS.md §6 rule 12/13)** adding a new `tool_result` audit event, mirroring `tool_invoked`, fired right after a successful capability dispatch: `backend/domain/job_manager/manager.py` (after the existing `update_job_step` success block), payload `{capability, result}`. Registered in `backend/domain/audit/events.py` (`VALID_EVENT_TYPES`, `_REQUIRED_PAYLOAD_KEYS`). Documented in `docs/audit.md`, `docs/api.md`, `docs/AI-CONTEXT.md`, `docs/api-manual-testing-guide.md`, `docs/frontend.md`.
+- `RagEvidencePanel.jsx` now scans `tool_result` instead; also fixed a field-name bug while there — it read `result.document_id` but `search_knowledge_base`'s actual output schema (`docs/capabilities.md`) uses `kb_document_id`.
+- `CapabilityActivity.jsx` — added a dedicated `tool_result` render case (capability name, exit-code badge when present e.g. for `execute_code`, collapsible JSON output) rather than falling through to the generic/unknown-event renderer, for trace legibility.
+- `JobTracePanel.jsx` — refactored to accept `events`/`status`/`error`/`reconnect` as props instead of calling `useJobEvents` itself, so `Workbench.jsx` can lift the one SSE subscription and hand the same event list to both `JobTracePanel` and `RagEvidencePanel` (previously `RagEvidencePanel` was hardcoded to `events={[]}` — see Entry 1's "Open issues").
+- `backend/tests/test_audit_events.py` — updated `test_emit_all_valid_event_types` and `test_valid_event_types_matches_audit_md` (now expects 12 types) for the new event type.
+- Verified live: Workflow C's RAG Evidence panel populated with 4 real SOP-001 chunks, correct scores, correct doc IDs, after asking a covered question.
+
+*Content-Disposition (Open item — verified correct, not a bug):*
+- `backend/api/artifacts.py`'s `FileResponse(..., filename=...)` already sets `Content-Disposition: attachment; filename="..."` correctly via Starlette. Added a regression assertion to `backend/tests/test_e2e_workflow.py` (`test_e2e_create_docx_over_http_no_stub`) locking this in, since Requirement 7 called it out as unverified.
+
+*Layout bug found live in the browser (not previously known):*
+- `Workbench.jsx`'s active layout (`flex flex-col gap-6 xl:flex-row`) had no bounded height — both columns stretch to match each other via flex default `align-items: stretch`, and the trace column grows unbounded with trace content. Once a job produced enough trace events (~15+, completely normal for Workflow A/B), the chat column stretched to match, pushing the composer input hundreds of pixels below the fold — reachable only by scrolling through a large empty gap. Fixed: the row is now `xl:h-[calc(100vh-220px)]`, both columns `xl:h-full`, right column additionally `xl:overflow-y-auto` — each panel now scrolls independently within a viewport-bounded row. Confirmed visually before/after.
+
+**How to verify:** `cd backend && source .venv/bin/activate && python -m pytest backend/tests/ -q` (525 passed, 1 known environmental flake — see Entry 1); `cd frontend && npm test -- --run` (14/14) and `npm run build` (clean). Manual: reproduced all three ChatPanel bugs live, confirmed fixed live, in a real browser session (not curl).
+
+**Manual browser pass — C → A → B, D observed throughout (`docs/demo.md` order):**
+
+- **Workflow C — PASS.** Asked "What is the maximum allowable vibration velocity before a cooling water pump must be removed from service immediately?" — trace showed explicit `orchestrator_step: invoke_capability` → `policy_decision: allow` → `tool_invoked: search_knowledge_base` → `tool_result` with 4 real SOP-001 chunks, RAG Evidence panel populated correctly, final answer ("11.0 mm/s RMS... 24 hours...") correctly grounded and citing SOP-001. A same-conversation follow-up ("what about the seal leakage class...") correctly answered from a fresh, distinct retrieval (Class III, 30 days) without confusing it with the prior turn's Class II reference. Did not get to case C2 (uncovered question) this pass — recommend Task 19 include it.
+- **Workflow A — PARTIAL, one blocking finding.** Uploaded `test-assets/documents/inspection-report-clean.png`, asked for an approval note. `extract_document` succeeded (OCR, confidence 0.997, no vision escalation needed for the clean asset — expected). But the Orchestrator then went **straight to `create_docx`, skipping `search_knowledge_base` entirely** — confirmed via the job's full trace (`tool_invoked` sequence was `extract_document` → `create_docx`, no `search_knowledge_base` in between). This fails `docs/demo.md` Workflow A's explicit success criterion: "Correct capability sequencing (extraction → retrieval → generation, **not skipped or reordered**)." The produced DOCX itself was schema-valid and downloadable (`Pump_Inspection_Approval_Note_CWP_204A.docx`, 36.4 KB, correct `Content-Disposition`) — this is an Orchestrator decision-making gap (it judged the extracted text sufficient on its own), not an integration/glue bug. **Routed as a blocking finding** to the Orchestrator owner (Task 9) — not fixed here (`backend/domain/orchestrator/*` is outside Task 17's allowed files, and the fix is prompt/behavior, not wiring). Did not get to the degraded-asset/vision-escalation case this pass — recommend Task 19 cover both the retrieval-skip regression and vision escalation.
+- **Workflow B — PASS** (two runs: a plain case and `test-assets/prompts/coding-test-prompts.md` case B3, the "good correction-loop case"). Both times: `generate_code` and `execute_code` appeared as distinct, separately-audited trace steps; model swap `qwen3.5:9b` (reasoning) → `qwen2.5-coder:7b` (code_generation) → back to `qwen3.5:9b` clearly visible via `model_invoked` events; `execute_code`'s `tool_result` rendered with a legible exit-code badge; both runs succeeded on the first attempt (`.strip('C')` before `float()`, avoiding B3's anticipated bug) so **the correction-loop path itself was not naturally exercised** — the mechanism is architecturally present (tool_result carries `exit_code`/`stderr`, Orchestrator can act on it) but not observed live. Recommend Task 19 retry B3 across multiple runs, or use a prompt more reliably provoking a first-attempt bug.
+- **Workflow D — PASS, throughout.** `SovereigntyIndicator` (in `StatusBar`, always rendered via `AppShell`) stayed visible and updating (`checked_at` advancing every ~2s) continuously through all of the above, including during Workflow B's sandbox execution — verified by checking its timestamp at multiple points during a live job run.
+
+**Open issues / known gaps:**
+- Workflow A's retrieval-skip (above) — blocking finding routed to Task 9 (Orchestrator).
+- Workflow B's correction loop — not naturally observed this pass; not blocking (the plumbing is verified), but Task 19 should specifically capture it.
+- Case C2 (honest "no grounding"), and Workflow A's degraded-asset/vision-escalation case — not run this pass; recommend Task 19.
+- See Entry 3 for two more significant findings from this same session (Orchestrator `malformed`-output frequency, and a Resource Lifecycle Manager wiring gap) discovered while investigating a performance report from the user.
+
+**Decisions made:**
+- `tool_result` added as a new audit event type (user-approved contract change, since the user confirmed they also own Task 15) — this is the only event/contract change made in this task; every other fix is glue per Task 17's charter.
+- Race-condition fix for the completion-message gap is intentionally frontend-only (retry timer) rather than reordering the two backend DB calls, to stay inside `backend/api/*`/`frontend/src/*` — flagged as an option for whoever next touches `job_manager.py` to do properly (emit `job_completed`/update status *after* the message append, or wrap both in one transaction).
+
+**Supersedes / references:** Builds on Entry 1's "Open issues" (answer not surfaced, RAG panel not bound, Content-Disposition unverified) — all three closed here.
+
+---
+
+### Entry 3 — 2026-09-13 06:35 — Performance investigation (user-reported): memory pressure, `think` mode, and a Resource Lifecycle Manager wiring gap
+
+**Context:** Mid-session the user reported extreme turn latency (single Orchestrator turns up to 276s / one full Workflow B job taking ~21 minutes) and asked for root-cause investigation before continuing — explicitly out of Task 17's normal scope (`docs/testing.md`/Task 20 owns performance benchmarking) but directed by the user, so investigated and (with explicit approval per finding) fixed where the fix was small, well-understood, and low-risk.
+
+**What was found and changed:**
+
+1. **Memory pressure (environmental, not fixed — flagged for Task 20/demo-day prep).** System has 24GB unified memory (M4 Pro). Mid-session, 3 Ollama models were resident simultaneously (`qwen3.5:9b` 9.1GB + `qwen2.5-coder:7b` 6.3GB + `qwen3-embedding:0.6b` 1.4GB ≈ 16.8GB), alongside a heavy browser session, VS Code, and this CLI. `memory_pressure` showed 733K swap-ins / 1.3M swap-outs and 97M pages decompressed — sustained thrashing, which directly degrades Metal/GPU inference on unified-memory Apple Silicon. Ollama's server process had actually died by the time this was checked (no process at all) — almost certainly resource-starved. No code fix (this is machine/environment, not app code); recommend for the actual demo machine: close unrelated heavy apps beforehand, and for Task 20 to consider tightening `config/resources.yaml`'s `keep_alive` so concurrent models don't stack up across a session that touches multiple resource types.
+
+2. **`think` mode — root cause of most of the latency, fixed.** Benchmarked directly against Ollama: the identical prompt with Ollama's default (`qwen3.5:9b`'s hidden "thinking" pass) took 27.4s / 636 completion tokens; with `"think": false`, 3.6s / 10 tokens, **byte-identical final answer**. This single option explains the majority of the multi-minute turns observed all session (5414-completion-token reasoning turns, etc.). **Fixed:** `backend/domain/model_runtime/runtime.py`'s `generate()` now sends `"think": False` in every Ollama `/api/generate` payload (reasoning/code_generation/vision — one central change covers all three). User explicitly approved after being walked through what `think` mode is and why the Orchestrator's narrow per-turn decision doesn't need it. Verified live post-fix: a full job (cold model load included) completed end-to-end in 12.8s, vs multi-minute turns beforehand.
+   - **Caveat for whoever revisits this:** only benchmarked on a trivial prompt; not A/B-tested against the harder multi-step orchestration decisions in this app specifically. If Task 19's repeat-validation shows a correctness regression on complex Workflow A/C reasoning, this is the first place to look.
+
+3. **Resource/Model Lifecycle Manager was fully implemented but never invoked — fixed.** While investigating "model-swap visibility" for Workflow B (Requirement 5), found that `resource_loaded`/`resource_unloaded` had **never fired once**, anywhere, in the entire session — confirmed by querying `audit_events` directly (zero rows of either type ever) and `resource_state` (only 2 of 4 resource types have rows at all, both showing a placeholder `2024-01-01T00:00:00` seed timestamp despite real, repeated usage). Root cause: `backend/domain/orchestrator/agent.py:69` (via `job_manager.py`'s `_JobBoundModelClient`) and `backend/domain/capabilities/generate_code.py:118` and `backend/domain/document_processing/vision_escalation.py:43` all call `model_runtime.generate()` **directly** — `backend/domain/model_runtime/lifecycle_manager.py`'s `acquire()` (the only place that emits these two event types, and that owns memory-pressure admission/eviction) is dead code on the real request path; it's only exercised by its own unit tests (`test_lifecycle_manager.py`).
+   - **User approved fixing this** (a subsystem file outside Task 17's allowed list, `backend/domain/*`) given its direct relevance to a Task 17 acceptance criterion. Fixed at all three real call sites — each now calls `await acquire(resource_type, job_id=...)` immediately before the existing `model_runtime.generate(...)` call, guarded so it only runs on the real runtime path (test fakes, whose `generate()` signature has no `job_id` param, are unaffected — verified: full suite still 501 passed / 1 known flake, same as before).
+   - Verified live via a direct API-level job (not through the browser, for speed): trace now shows `resource_loaded {resource_type: reasoning, model_identifier: qwen3.5:9b, duration_ms: 3797}` on a cold load, immediately followed by the real `model_invoked` for the same turn.
+
+4. **Health-check "flood" the user separately reported — investigated, confirmed already fixed, no new bug.** A fresh, unbuffered, single-tab measurement against a clean backend showed a steady ~1 request/2s (matching `SovereigntyIndicator`'s documented 2s poll interval) — not a flood. This exact class of bug (`useApi` effect re-running every render) was already found and fixed in this workstream's baseline (Entry 1, commit `6f79ccc`) before this session started; what the user saw was almost certainly this session's own long-lived, many-times-hot-reloaded browser tab hitting their freshly-restarted backend, read through un-timestamped terminal scrollback. No code change made.
+
+**How to verify:**
+- `think`/lifecycle fixes: `curl -s -X POST http://127.0.0.1:8000/api/v1/jobs -d '{"conversation_id":"<id>","message":"...","document_ids":[]}'`, poll `GET /jobs/{id}`, then `GET /jobs/{id}/trace` — expect a `resource_loaded` event on first use of a resource type per process lifetime, and turn durations in the single-digit-to-low-teens seconds for simple prompts (was 12–276s per turn before).
+- Backend suite: `python -m pytest backend/tests/ -q` — 501 passed, 1 known environmental flake (unchanged from before these fixes).
+- Memory pressure: `memory_pressure`, `vm_stat`, `ollama ps` — no code-level check; environmental only.
+
+**Decisions made:**
+- Fixed items 2 and 3 despite being outside Task 17's `backend/api/*`/`frontend/src/*` charter, with explicit user approval each time (user directed the investigation and owns the affected subsystems). Item 1 (memory pressure) is left as a flagged environmental risk, not a code change — there is nothing in this app's code to fix for it beyond item 2/3's mitigating effect of using less compute per call.
+- Did not attempt to fix the Orchestrator's `malformed`-output frequency (several turns this session produced non-JSON output requiring a free corrective retry) — this is Orchestrator/prompt-engineering territory (Task 9), and the `think: false` fix may have already substantially improved it (shorter generations reduce the chance of losing the JSON format mid-ramble) but this wasn't isolated/re-tested after the fix. Flagging for Task 9 / Task 19's repeat validation to re-assess malformed-rate post-`think:false`.
+
+**Supersedes / references:** Discovered while manually verifying Entry 2's Workflow B pass (Requirement 5's "confirm a resource_loaded entry is visible" criterion).
+
+---
+
 ## Open questions for the user
 
-- **Documents listing (blocks "see uploaded documents"):** add `GET /api/v1/documents` (list) to `docs/api.md` (contract change → your approval + Task 15 lead sign-off per the task's stability rule), then backend endpoint + a Documents panel? Or defer past Task 17?
-- **Answer surfacing shape:** render `final_message` as an assistant chat bubble, a dedicated result panel, or both? (`docs/frontend.md` is the reference — needs the intended behavior confirmed.)
-- The task file's Open Questions (headless e2e harness vs manual) — proposed: manual + targeted regression tests only; confirm.
+All three of this section's original questions were answered during the 2026-09-13 session (see Entry 2): documents listing → added now; answer surfacing → assistant chat bubble; test approach → manual + targeted regression tests, confirmed.
+
+Carried forward, still open:
+- **Workflow A's retrieval-skip** (Entry 2) — routed to Task 9 (Orchestrator), not answerable by the project lead alone; needs the Orchestrator owner's prompt/behavior fix, then a re-run.
+- **Workflow B's correction loop** (Entry 2) — not naturally observed; is a dedicated Task 19 repeat-validation run (or a more failure-prone demo asset) the right way to capture it, or is this task's "the plumbing is verified" sufficient to call Requirement 5 done?
+- **`think: false` regression risk** (Entry 3) — only benchmarked on a trivial prompt. Should Task 19's repeat validation specifically compare answer quality on Workflow A/C's harder reasoning cases with thinking on vs off before this is considered fully safe?
 
 ## Links
 
