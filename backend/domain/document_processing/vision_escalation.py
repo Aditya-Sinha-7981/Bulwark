@@ -40,6 +40,14 @@ async def escalate_to_vision(
     try:
         image_bytes = _read_image_bytes(image_path)
         prompt = _build_prompt(flagged_regions)
+        # Route through the Lifecycle Manager first so resource_loaded/
+        # resource_unloaded actually fire for the vision resource (Task 17
+        # integration finding — this call used to go straight to Model
+        # Runtime, bypassing the Lifecycle Manager entirely).
+        from backend.domain.model_runtime.lifecycle_manager import acquire
+
+        if job_id:
+            await acquire("vision", job_id=job_id)
         result = await model_runtime.generate(
             resource_type="vision",
             prompt=prompt,

@@ -115,6 +115,14 @@ async def _call_model_runtime(prompt: str, job_id: str | None = None) -> str:
     (`docs/audit.md`), and the call resolves through the Resource/Model
     Configuration Registry — no model names here (AGENTS.md §6 rule 3).
     """
+    # Route through the Lifecycle Manager first so resource_loaded/
+    # resource_unloaded actually fire for this resource type (Task 17
+    # integration finding — this call used to go straight to Model Runtime,
+    # bypassing the Lifecycle Manager entirely).
+    from backend.domain.model_runtime.lifecycle_manager import acquire
+
+    if job_id:
+        await acquire("code_generation", job_id=job_id)
     result = await model_runtime.generate("code_generation", prompt, job_id=job_id)
     return result.text
 
