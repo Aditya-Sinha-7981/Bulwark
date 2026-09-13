@@ -70,6 +70,32 @@ def get_conversation(conversation_id: str) -> Optional[dict]:
         conn.close()
 
 
+def list_conversations(limit: int = 50, offset: int = 0) -> List[dict]:
+    """
+    List conversations, most recently active first.
+
+    Args:
+        limit: Maximum number of conversations to return.
+        offset: Number of conversations to skip.
+
+    Returns:
+        List of conversation dicts ordered by updated_at descending.
+    """
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            """
+            SELECT * FROM conversations
+            ORDER BY updated_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            (limit, offset),
+        )
+        return [row_to_dict(row) for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
 def update_conversation_timestamp(conversation_id: str) -> bool:
     """
     Update the conversation's updated_at timestamp.

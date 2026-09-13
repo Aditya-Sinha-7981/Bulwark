@@ -43,6 +43,17 @@ Response `201`:
 { "conversation_id": "uuid", "created_at": "iso8601" }
 ```
 
+### `GET /api/v1/conversations`
+
+List conversations, most recently active first — backs a conversation history panel.
+
+Query params: `limit` (default 50, max 200), `offset` (default 0).
+Response `200`:
+```json
+{ "conversations": [ { "conversation_id": "uuid", "created_at": "iso8601", "updated_at": "iso8601", "preview": "string | null", "message_count": 0 } ] }
+```
+`preview` is derived from the conversation's first message at read time (no `title` field exists on Conversation — `docs/data-model.md`).
+
 ### `GET /api/v1/conversations/{conversation_id}`
 
 Response `200`: conversation metadata + ordered `messages[]` (see `data-model.md#Message`).

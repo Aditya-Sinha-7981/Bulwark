@@ -72,6 +72,11 @@ export async function getConversation(conversationId) {
   return request(`/conversations/${conversationId}`)
 }
 
+// GET /api/v1/conversations — list conversations, most recently active first.
+export async function listConversations({ limit = 20, offset = 0 } = {}) {
+  return request(`/conversations?limit=${limit}&offset=${offset}`)
+}
+
 // ---- Jobs -----------------------------------------------------------------
 
 // POST /api/v1/jobs — create a Job. Requires an existing conversation_id.

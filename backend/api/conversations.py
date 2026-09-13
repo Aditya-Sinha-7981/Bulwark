@@ -8,11 +8,13 @@ is appended here as a `role: "orchestrator"` row by the Job Manager.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from backend.repositories import conversations as conversations_repo
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
+
+_PREVIEW_MAX_CHARS = 120
 
 
 def _not_found(message: str) -> dict:
@@ -31,6 +33,46 @@ async def create_conversation() -> dict:
         "conversation_id": conversation_id,
         "created_at": conversation["created_at"],
     }
+
+
+@router.get("")
+async def list_conversations(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> dict:
+    """
+    List conversations, most recently active first — backs a conversation
+    history panel. No `title` field exists on Conversation
+    (`docs/data-model.md`), so each entry carries a `preview` derived from
+    its first message instead of a persisted title.
+
+    Response 200:
+    ```json
+    { "conversations": [ { "conversation_id": "uuid", "created_at": "iso8601", "updated_at": "iso8601", "preview": "string | null", "message_count": 0 } ] }
+    ```
+    """
+    conversations = conversations_repo.list_conversations(limit=limit, offset=offset)
+    result = []
+    for conv in conversations:
+        first_message = conversations_repo.list_messages(conv["conversation_id"], limit=1)
+        preview = None
+        if first_message:
+            content = first_message[0]["content"]
+            preview = (
+                content
+                if len(content) <= _PREVIEW_MAX_CHARS
+                else content[:_PREVIEW_MAX_CHARS].rstrip() + "…"
+            )
+        result.append(
+            {
+                "conversation_id": conv["conversation_id"],
+                "created_at": conv["created_at"],
+                "updated_at": conv["updated_at"],
+                "preview": preview,
+                "message_count": conversations_repo.count_messages(conv["conversation_id"]),
+            }
+        )
+    return {"conversations": result}
 
 
 @router.get("/{conversation_id}")

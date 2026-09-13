@@ -6,6 +6,7 @@ import { ChatPanel } from '../components/ChatPanel'
 import { JobTracePanel } from '../components/JobTracePanel'
 import { ArtifactPanel } from '../components/ArtifactPanel'
 import { RagEvidencePanel } from '../components/RagEvidencePanel'
+import { ConversationHistory } from '../components/ConversationHistory'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { Badge } from '../components/ui/Badge'
 import { Icon } from '../components/ui/Icon'
@@ -166,6 +167,23 @@ export function Workbench({ healthState }) {
     setConversationId(convId)
   }, [])
 
+  // Resuming a past conversation has no active Job of its own — clearing
+  // activeJobId drops back to the empty-state composer layout, where
+  // ChatPanel still loads and shows that conversation's full history above
+  // the input. Sending a new message there starts a new Job in the same
+  // (now-resumed) conversation, continuing it rather than starting fresh.
+  const handleSelectConversation = useCallback((convId) => {
+    setConversationId(convId)
+    setActiveJobId(null)
+    setJobData(null)
+  }, [])
+
+  const handleNewConversation = useCallback(() => {
+    setConversationId(null)
+    setActiveJobId(null)
+    setJobData(null)
+  }, [])
+
   const handleError = useCallback((err) => {
     setErrors((prev) => [...prev, err])
   }, [])
@@ -217,16 +235,35 @@ export function Workbench({ healthState }) {
             </Badge>
           )}
         </div>
-        {errors.length > 0 && (
-          <button
-            type="button"
-            className="btn-quiet btn text-xs text-danger"
-            onClick={clearAllErrors}
-          >
-            <Icon name="x" size={12} />
-            Dismiss all errors ({errors.length})
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {errors.length > 0 && (
+            <button
+              type="button"
+              className="btn-quiet btn text-xs text-danger"
+              onClick={clearAllErrors}
+            >
+              <Icon name="x" size={12} />
+              Dismiss all errors ({errors.length})
+            </button>
+          )}
+          {!simMode && (
+            <>
+              <button
+                type="button"
+                className="btn-quiet btn text-txt-mid"
+                onClick={handleNewConversation}
+                aria-label="Start a new conversation"
+              >
+                <Icon name="plus" size={14} />
+                New chat
+              </button>
+              <ConversationHistory
+                activeConversationId={conversationId}
+                onSelectConversation={handleSelectConversation}
+              />
+            </>
+          )}
+        </div>
       </div>
 
       {/* Error Banner */}
@@ -300,7 +337,7 @@ export function Workbench({ healthState }) {
               </div>
             ) : (
               // Real ChatPanel
-              <ChatPanel onJobCreated={handleJobCreated} onConversationCreated={handleConversationCreated} conversationId={conversationId} job={jobData} />
+              <ChatPanel key={conversationId ?? 'new'} onJobCreated={handleJobCreated} onConversationCreated={handleConversationCreated} conversationId={conversationId} job={jobData} />
             )}
           </div>
         </div>
@@ -370,6 +407,7 @@ export function Workbench({ healthState }) {
             ) : (
               // Real ChatPanel (shows history for conversation)
               <ChatPanel
+                key={conversationId ?? 'new'}
                 onJobCreated={handleJobCreated}
                 onConversationCreated={handleConversationCreated}
                 conversationId={conversationId}
