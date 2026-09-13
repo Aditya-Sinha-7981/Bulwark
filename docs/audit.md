@@ -29,6 +29,7 @@ Table definition: `data-model.md#AuditEvent`. Restated here for reference:
 | `orchestrator_step` | Orchestrator dispatch code | `action` (`respond`/`invoke_capability`), raw proposal |
 | `policy_decision` | Policy Layer | `capability`, `decision` (`allow`/`deny`), `reason` |
 | `tool_invoked` | Job Manager, on dispatch | `capability`, `arguments` |
+| `tool_result` | Job Manager, after a successful dispatch | `capability`, `result` (the capability's output schema per `capabilities.md`) |
 | `model_invoked` | Model Runtime | `resource_type`, `model_identifier`, `prompt_tokens`, `completion_tokens`, `duration_ms` |
 | `resource_loaded` | Resource/Model Lifecycle Manager | `resource_type`, `model_identifier`, `duration_ms` |
 | `resource_unloaded` | Resource/Model Lifecycle Manager | `resource_type`, `model_identifier`, `reason` (`idle_timeout`/`evicted`) |

@@ -78,7 +78,7 @@ Full audit-event history for the job, ordered.
 curl -s localhost:8000/api/v1/jobs/<job_id>/trace
 ```
 → `200 { job_id, events: [{event_id, event_type, component, timestamp, payload}] }`
-`event_type` ∈ `job_created | orchestrator_step | policy_decision | tool_invoked | model_invoked | resource_loaded | resource_unloaded | artifact_created | error | job_completed | network_check`.
+`event_type` ∈ `job_created | orchestrator_step | policy_decision | tool_invoked | tool_result | model_invoked | resource_loaded | resource_unloaded | artifact_created | error | job_completed | network_check`.
 
 ### `GET /jobs/{job_id}/events` (SSE — live stream)
 Query param `replay` (default `true`) replays persisted events on connect before streaming new ones. The Postman VS Code extension may not render SSE cleanly — curl works too:

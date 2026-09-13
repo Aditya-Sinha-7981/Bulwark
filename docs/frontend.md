@@ -61,7 +61,7 @@ Direct links to the download endpoint — browser-native download handling, no c
 
 ## RAG evidence
 
-`RagEvidencePanel` — when a Job's trace includes a `search_knowledge_base` `tool_invoked`/result pair, render the returned `results[]` (title, chunk snippet, score) so retrieval grounding is visible, not just asserted in the chat response.
+`RagEvidencePanel` — when a Job's trace includes a `search_knowledge_base` `tool_invoked`/`tool_result` pair, render the returned `results[]` (title, chunk snippet, score) so retrieval grounding is visible, not just asserted in the chat response.
 
 ## Sovereignty indicator
 

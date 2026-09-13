@@ -289,6 +289,7 @@ The Orchestrator's only mechanism for causing effect is emitting an `invoke_capa
 | `orchestrator_step` | Orchestrator dispatch code | action, raw proposal |
 | `policy_decision` | Policy Layer | capability, decision (allow/deny), reason |
 | `tool_invoked` | Job Manager on dispatch | capability, arguments |
+| `tool_result` | Job Manager, after a successful dispatch | capability, result |
 | `model_invoked` | Model Runtime | resource_type, model_identifier, prompt_tokens, completion_tokens, duration_ms |
 | `resource_loaded` | Lifecycle Manager | resource_type, model_identifier, duration_ms |
 | `resource_unloaded` | Lifecycle Manager | resource_type, model_identifier, reason (idle_timeout/evicted) |

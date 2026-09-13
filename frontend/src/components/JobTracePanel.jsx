@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
-import { useJobEvents } from '../hooks/useJobEvents'
 import { CapabilityActivity } from './CapabilityActivity'
 import { Icon } from './ui/Icon'
 import { Badge } from './ui/Badge'
 
-// Live Job trace panel — driven by useJobEvents (SSE + late-join trace fetch).
-// Renders each event through CapabilityActivity in order.
-export function JobTracePanel({ jobId }) {
-  const { events, status, error, reconnect } = useJobEvents(jobId)
+// Live Job trace panel — renders each event through CapabilityActivity in
+// order. The SSE subscription (useJobEvents) is owned by the parent
+// (Workbench) and passed down as props, rather than called here, so the
+// same event stream can also feed RagEvidencePanel without opening a second
+// EventSource connection to the same job_id.
+export function JobTracePanel({ jobId, events = [], status = 'connecting', error = null, reconnect }) {
   const [autoScroll, setAutoScroll] = useState(true)
   const traceContainerRef = useRef(null)
   const lastEventCountRef = useRef(0)
@@ -130,6 +131,7 @@ function getEventBorderColor(eventType) {
     orchestrator_step: '#a78bfa',
     policy_decision: '#2ec98c',
     tool_invoked: '#a78bfa',
+    tool_result: '#a78bfa',
     model_invoked: '#4c8dff',
     resource_loaded: '#4c8dff',
     resource_unloaded: '#6d7f99',

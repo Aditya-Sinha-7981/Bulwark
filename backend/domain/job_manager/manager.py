@@ -116,6 +116,18 @@ class _JobBoundModelClient:
         options: Any = None,
     ) -> Any:
         if self._accepts_job_id:
+            # Real runtime only (test fakes don't accept job_id, per the
+            # signature check above) — route through the Resource/Model
+            # Lifecycle Manager first so resource_loaded/resource_unloaded
+            # actually fire. Previously this called self._inner.generate()
+            # (Model Runtime) directly, so the Lifecycle Manager was never
+            # invoked on the real request path and those two event types
+            # never appeared in any Job's trace (Task 17 integration finding,
+            # logs/feature-integration.md — confirmed via 0 such events ever
+            # existing in audit_events despite real model swaps happening).
+            from backend.domain.model_runtime.lifecycle_manager import acquire
+
+            await acquire(resource_type, job_id=self._job_id)
             return await self._inner.generate(
                 resource_type, prompt, images=images, options=options, job_id=self._job_id
             )
@@ -655,6 +667,16 @@ async def run_job(job_id: str) -> None:
                     status="succeeded",
                     output_payload=_compact(raw),
                     completed_at=_now_iso(),
+                )
+                # Mirrors tool_invoked so the trace carries the capability's
+                # actual output (docs/audit.md), not just that it was called —
+                # otherwise nothing renders RAG evidence, sandbox output, etc.
+                # in the UI (Task 17 integration finding, logs/feature-integration.md).
+                await emit(
+                    event_type="tool_result",
+                    component="job_manager",
+                    payload={"capability": capability, "result": raw},
+                    job_id=job_id,
                 )
                 tool_results.append(
                     ToolResult(
