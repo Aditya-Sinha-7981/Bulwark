@@ -126,6 +126,13 @@ class OllamaRuntime:
             "prompt": prompt,
             "stream": False,
             "keep_alive": keep_alive,
+            # qwen3.5 defaults to an extended hidden "thinking" pass before
+            # the actual response. Benchmarked live (2026-09-13): identical
+            # final `response` text, 636 completion tokens / 27.4s with
+            # thinking on vs 10 tokens / 3.6s with it off. The Orchestrator's
+            # per-turn decision (pick one capability, emit one JSON proposal)
+            # doesn't need chain-of-thought — this is a straight latency win.
+            "think": False,
         }
 
         filtered = {k: v for k, v in options.items() if k in ALLOWED_GENERATE_OPTIONS}
