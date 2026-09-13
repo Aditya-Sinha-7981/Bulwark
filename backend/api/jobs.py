@@ -172,7 +172,7 @@ async def get_job_trace(job_id: str) -> dict:
       "events": [
         {
           "event_id": "uuid",
-          "event_type": "job_created | orchestrator_step | policy_decision | tool_invoked | model_invoked | resource_loaded | resource_unloaded | artifact_created | error | job_completed | network_check",
+          "event_type": "job_created | orchestrator_step | policy_decision | tool_invoked | tool_result | model_invoked | resource_loaded | resource_unloaded | artifact_created | error | job_completed | network_check",
           "component": "string",
           "timestamp": "iso8601",
           "payload": {}

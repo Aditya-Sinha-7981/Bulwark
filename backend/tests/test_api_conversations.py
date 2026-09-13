@@ -40,6 +40,42 @@ def test_get_conversation_returns_ordered_messages(bulwark_client):
     assert created == sorted(created)
 
 
+def test_list_conversations_most_recent_first(bulwark_client):
+    older = bulwark_client.post("/api/v1/conversations").json()["conversation_id"]
+    newer = bulwark_client.post("/api/v1/conversations").json()["conversation_id"]
+
+    r = bulwark_client.get("/api/v1/conversations")
+    assert r.status_code == 200
+    body = r.json()
+    ids = [c["conversation_id"] for c in body["conversations"]]
+    assert ids.index(newer) < ids.index(older)
+    for c in body["conversations"]:
+        assert {"conversation_id", "created_at", "updated_at", "preview", "message_count"} <= set(c)
+
+
+def test_list_conversations_preview_from_first_message(bulwark_client):
+    conv_id = bulwark_client.post("/api/v1/conversations").json()["conversation_id"]
+    job = bulwark_client.post(
+        "/api/v1/jobs",
+        json={"conversation_id": conv_id, "message": "what is the pump SOP threshold", "document_ids": []},
+    ).json()
+    _poll_job(bulwark_client, job["job_id"])
+
+    r = bulwark_client.get("/api/v1/conversations")
+    entry = next(c for c in r.json()["conversations"] if c["conversation_id"] == conv_id)
+    assert entry["preview"] == "what is the pump SOP threshold"
+    assert entry["message_count"] == 2
+
+
+def test_list_conversations_respects_limit(bulwark_client):
+    bulwark_client.post("/api/v1/conversations")
+    bulwark_client.post("/api/v1/conversations")
+
+    r = bulwark_client.get("/api/v1/conversations", params={"limit": 1})
+    assert r.status_code == 200
+    assert len(r.json()["conversations"]) == 1
+
+
 def test_get_unknown_conversation_404_envelope(bulwark_client):
     r = bulwark_client.get("/api/v1/conversations/00000000-0000-0000-0000-000000000000")
     assert r.status_code == 404

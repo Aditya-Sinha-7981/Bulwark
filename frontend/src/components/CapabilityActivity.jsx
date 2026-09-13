@@ -93,6 +93,33 @@ export function CapabilityActivity({ event }) {
       )
     }
 
+    case 'tool_result': {
+      const capability = payload?.capability ?? 'unknown'
+      const result = payload?.result ?? {}
+      // execute_code's result carries exit_code — surface it as the headline
+      // signal so a buggy-then-fixed correction loop is legible at a glance.
+      const hasExitCode = typeof result.exit_code === 'number'
+      const succeeded = !hasExitCode || result.exit_code === 0
+      return (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2 text-txt-mid">
+            <Icon name={hasExitCode ? (succeeded ? 'check' : 'alert') : 'check'} size={14} className={hasExitCode ? (succeeded ? 'text-ok' : 'text-danger') : 'text-ok'} />
+            <span>Result from <strong className="text-txt-hi mono">{capability}</strong></span>
+            {hasExitCode && (
+              <Badge tone={succeeded ? 'green' : 'red'} dot={false}>exit {result.exit_code}</Badge>
+            )}
+            <span className="mono text-[10px] text-txt-dim ml-auto">{time}</span>
+          </div>
+          <details className="ml-6">
+            <summary className="text-xs text-txt-low cursor-pointer mono">Output</summary>
+            <pre className="mt-1 text-[10px] mono text-txt-mid bg-elevated p-2 rounded overflow-auto max-h-40">
+              {JSON.stringify(result, null, 2)}
+            </pre>
+          </details>
+        </div>
+      )
+    }
+
     case 'model_invoked': {
       const resourceType = payload?.resource_type ?? ''
       const modelIdentifier = payload?.model_identifier ?? ''

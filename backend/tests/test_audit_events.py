@@ -181,6 +181,7 @@ class TestEmitFunction:
             "orchestrator_step": {"action": "respond"},
             "policy_decision": {"capability": "test", "decision": "allow", "reason": "ok"},
             "tool_invoked": {"capability": "test", "arguments": {}},
+            "tool_result": {"capability": "test", "result": {}},
             "model_invoked": {"resource_type": "reasoning", "model_identifier": "m1", "prompt_tokens": 10, "completion_tokens": 20, "duration_ms": 100},
             "resource_loaded": {"resource_type": "reasoning", "model_identifier": "m1", "duration_ms": 500},
             "resource_unloaded": {"resource_type": "reasoning", "model_identifier": "m1", "reason": "idle_timeout"},
@@ -391,12 +392,13 @@ class TestEventTypeEnum:
     """Tests that VALID_EVENT_TYPES matches docs/audit.md."""
 
     def test_valid_event_types_matches_audit_md(self):
-        """VALID_EVENT_TYPES contains exactly the 11 types from docs/audit.md."""
+        """VALID_EVENT_TYPES contains exactly the 12 types from docs/audit.md."""
         expected = {
             "job_created",
             "orchestrator_step",
             "policy_decision",
             "tool_invoked",
+            "tool_result",
             "model_invoked",
             "resource_loaded",
             "resource_unloaded",

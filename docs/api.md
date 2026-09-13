@@ -43,6 +43,17 @@ Response `201`:
 { "conversation_id": "uuid", "created_at": "iso8601" }
 ```
 
+### `GET /api/v1/conversations`
+
+List conversations, most recently active first — backs a conversation history panel.
+
+Query params: `limit` (default 50, max 200), `offset` (default 0).
+Response `200`:
+```json
+{ "conversations": [ { "conversation_id": "uuid", "created_at": "iso8601", "updated_at": "iso8601", "preview": "string | null", "message_count": 0 } ] }
+```
+`preview` is derived from the conversation's first message at read time (no `title` field exists on Conversation — `docs/data-model.md`).
+
 ### `GET /api/v1/conversations/{conversation_id}`
 
 Response `200`: conversation metadata + ordered `messages[]` (see `data-model.md#Message`).
@@ -95,7 +106,7 @@ Response `200`:
   "events": [
     {
       "event_id": "uuid",
-      "event_type": "job_created | orchestrator_step | policy_decision | tool_invoked | model_invoked | resource_loaded | resource_unloaded | artifact_created | error | job_completed | network_check",
+      "event_type": "job_created | orchestrator_step | policy_decision | tool_invoked | tool_result | model_invoked | resource_loaded | resource_unloaded | artifact_created | error | job_completed | network_check",
       "component": "string",
       "timestamp": "iso8601",
       "payload": {}
@@ -118,9 +129,29 @@ Response `201`:
 { "document_id": "uuid", "filename": "string", "content_type": "string", "size_bytes": 12345, "uploaded_at": "iso8601" }
 ```
 
+### `GET /api/v1/documents`
+
+List previously uploaded documents, most recently uploaded first.
+
+Query params: `limit` (default 100, max 500), `offset` (default 0).
+Response `200`:
+```json
+{ "documents": [ { "document_id": "uuid", "filename": "string", "content_type": "string", "size_bytes": 12345, "uploaded_at": "iso8601" } ] }
+```
+
 ### `GET /api/v1/documents/{document_id}`
 
 Metadata for an uploaded document (not its raw bytes — see artifact download pattern below for retrieving bytes if needed).
+
+### `GET /api/v1/artifacts`
+
+List all generated artifacts, most recently created first.
+
+Query params: `limit` (default 50, max 200), `offset` (default 0).
+Response `200`:
+```json
+{ "artifacts": [ { "artifact_id": "uuid", "job_id": "uuid", "type": "docx | xlsx | pptx", "filename": "string", "created_at": "iso8601", "size_bytes": 12345 } ] }
+```
 
 ### `GET /api/v1/artifacts/{artifact_id}`
 

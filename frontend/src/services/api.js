@@ -72,6 +72,11 @@ export async function getConversation(conversationId) {
   return request(`/conversations/${conversationId}`)
 }
 
+// GET /api/v1/conversations — list conversations, most recently active first.
+export async function listConversations({ limit = 20, offset = 0 } = {}) {
+  return request(`/conversations?limit=${limit}&offset=${offset}`)
+}
+
 // ---- Jobs -----------------------------------------------------------------
 
 // POST /api/v1/jobs — create a Job. Requires an existing conversation_id.
@@ -120,11 +125,21 @@ export async function getDocument(documentId) {
   return request(`/documents/${documentId}`)
 }
 
+// GET /api/v1/documents — list previously uploaded documents.
+export async function listDocuments({ limit = 20, offset = 0 } = {}) {
+  return request(`/documents?limit=${limit}&offset=${offset}`)
+}
+
 // ---- Artifacts ------------------------------------------------------------
 
 // GET /api/v1/artifacts/{artifact_id} — artifact metadata.
 export async function getArtifact(artifactId) {
   return request(`/artifacts/${artifactId}`)
+}
+
+// GET /api/v1/artifacts — list all generated artifacts, most recent first.
+export async function listArtifacts({ limit = 50, offset = 0 } = {}) {
+  return request(`/artifacts?limit=${limit}&offset=${offset}`)
 }
 
 // GET /api/v1/artifacts/{artifact_id}/download — raw file bytes.

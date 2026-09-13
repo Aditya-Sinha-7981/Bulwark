@@ -8,21 +8,11 @@ export function RagEvidencePanel({ events = [] }) {
   const searchResults = useMemo(() => {
     const results = []
     for (const event of events) {
-      // Look for tool_invoked: search_knowledge_base with results in payload
-      if (event.event_type === 'tool_invoked' && event.payload?.capability === 'search_knowledge_base') {
-        const payloadResults = event.payload?.result?.results ?? event.payload?.results
+      // tool_result carries the capability's actual output (docs/audit.md);
+      // tool_invoked only carries the call arguments, never the response.
+      if (event.event_type === 'tool_result' && event.payload?.capability === 'search_knowledge_base') {
+        const payloadResults = event.payload?.result?.results
         if (Array.isArray(payloadResults) && payloadResults.length > 0) {
-          results.push(...payloadResults.map((r, idx) => ({
-            ...r,
-            _eventId: event.event_id,
-            _index: idx,
-          })))
-        }
-      }
-      // Also check for standalone result events if backend emits them
-      if (event.event_type === 'tool_invoked' && event.payload?.result?.results) {
-        const payloadResults = event.payload.result.results
-        if (Array.isArray(payloadResults)) {
           results.push(...payloadResults.map((r, idx) => ({
             ...r,
             _eventId: event.event_id,
@@ -82,7 +72,7 @@ export function RagEvidencePanel({ events = [] }) {
               </p>
             )}
             <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-txt-dim mono">
-              {result.document_id && <span>doc: {result.document_id.slice(0, 8)}…</span>}
+              {result.kb_document_id && <span>doc: {result.kb_document_id.slice(0, 8)}…</span>}
               {result.chunk_index != null && <span>chunk: {result.chunk_index}</span>}
               {result.metadata && Object.entries(result.metadata).map(([k, v]) => (
                 <span key={k}>{k}: {v}</span>

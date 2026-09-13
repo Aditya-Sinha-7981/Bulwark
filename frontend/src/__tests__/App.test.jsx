@@ -26,9 +26,12 @@ vi.mock('../services/api.js', () => {
     jobEventsUrl: vi.fn((jobId) => `http://127.0.0.1:8000/api/v1/jobs/${jobId}/events`),
     uploadDocument: vi.fn(),
     getDocument: vi.fn(),
+    listDocuments: vi.fn(() => Promise.resolve({ documents: [] })),
+    listConversations: vi.fn(() => Promise.resolve({ conversations: [] })),
     getArtifact: vi.fn(),
+    listArtifacts: vi.fn(() => Promise.resolve({ artifacts: [] })),
     artifactDownloadUrl: vi.fn((id) => `http://127.0.0.1:8000/api/v1/artifacts/${id}/download`),
-    getKnowledgeBase: vi.fn(),
+    getKnowledgeBase: vi.fn(() => Promise.resolve({ documents: [] })),
     ingestKnowledgeDocument: vi.fn(),
     deleteKnowledgeDocument: vi.fn(),
     getNetworkStatus: vi.fn(),
@@ -88,7 +91,7 @@ describe('App shell + health', () => {
   })
 })
 
-describe('Navigation removed - Workbench only', () => {
+describe('Navigation — Workbench, Documents, Created only', () => {
   beforeEach(() => {
     getHealth.mockReset()
     getNetworkStatus.mockReset()
@@ -100,14 +103,31 @@ describe('Navigation removed - Workbench only', () => {
     })
   })
 
-  it('renders only Workbench (no sidebar navigation for Jobs/Knowledge/Settings)', async () => {
+  it('renders Workbench by default (no sidebar navigation for Jobs/Knowledge/Settings)', async () => {
     render(<App />)
 
     await screen.findByText('LOCAL • SECURE')
     expect(screen.getByRole('heading', { name: 'What are you working on?' })).toBeInTheDocument()
-    // Jobs, Knowledge, Settings pages should not be accessible
+    // Jobs, Knowledge, Settings pages still aren't wired up — no scaffold for them.
     expect(screen.queryByRole('button', { name: 'Jobs' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Knowledge' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Settings' })).not.toBeInTheDocument()
+  })
+
+  it('navigates to the Documents, Created, and Knowledge Base pages via the sidebar', async () => {
+    render(<App />)
+    await screen.findByText('LOCAL • SECURE')
+
+    fireEvent.click(screen.getByRole('button', { name: /Documents/i }))
+    expect(await screen.findByText(/Files uploaded to the Workbench/i)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Created/i }))
+    expect(await screen.findByText(/Generated deliverables from completed tasks/i)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Knowledge Base/i }))
+    expect(await screen.findByText(/separate from uploaded documents/i)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Workbench/i }))
+    expect(await screen.findByRole('heading', { name: 'What are you working on?' })).toBeInTheDocument()
   })
 })

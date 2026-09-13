@@ -1,6 +1,7 @@
 """Documents API endpoints.
 
 POST /api/v1/documents - Upload a document for later reference by a Job.
+GET /api/v1/documents - List previously uploaded documents.
 GET /api/v1/documents/{document_id} - Get document metadata.
 
 Per docs/api.md and docs/document-processing.md.
@@ -12,11 +13,11 @@ import logging
 from pathlib import Path
 from uuid import UUID
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, ConfigDict
 
 from backend.config import settings
-from backend.repositories.documents import create_document, get_document
+from backend.repositories.documents import create_document, get_document, list_documents
 from backend.utils.paths import uploads_path, UPLOADS_ROOT
 
 router = APIRouter()
@@ -50,6 +51,11 @@ class DocumentMetadataResponse(BaseModel):
     content_type: str
     size_bytes: int
     uploaded_at: str
+
+
+class DocumentListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    documents: list[DocumentMetadataResponse]
 
 
 class ErrorResponse(BaseModel):
@@ -215,6 +221,33 @@ async def upload_document(file: UploadFile = File(...)) -> DocumentUploadRespons
         content_type=doc["content_type"],
         size_bytes=doc["size_bytes"],
         uploaded_at=doc["uploaded_at"],
+    )
+
+
+@router.get(
+    "/documents",
+    response_model=DocumentListResponse,
+)
+async def list_documents_endpoint(
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> DocumentListResponse:
+    """List previously uploaded documents, most recently uploaded first.
+
+    Mirrors GET /api/v1/knowledge-base's list shape (docs/api.md).
+    """
+    docs = list_documents(limit=limit, offset=offset)
+    return DocumentListResponse(
+        documents=[
+            DocumentMetadataResponse(
+                document_id=doc["document_id"],
+                filename=doc["filename"],
+                content_type=doc["content_type"],
+                size_bytes=doc["size_bytes"],
+                uploaded_at=doc["uploaded_at"],
+            )
+            for doc in docs
+        ]
     )
 
 

@@ -152,10 +152,21 @@ def test_e2e_create_docx_over_http_no_stub(client):
     dl = client.get(f"/api/v1/artifacts/{art_id}/download")
     assert dl.status_code == 200
     assert dl.content[:2] == b"PK"  # .docx is a zip container
+    # docs/api.md: download must carry Content-Disposition: attachment with
+    # the artifact's readable filename, not a bare artifact_id.
+    disposition = dl.headers.get("content-disposition", "")
+    assert disposition.startswith("attachment")
+    assert meta.json()["filename"] in disposition
 
     trace_types = [e["event_type"] for e in client.get(f"/api/v1/jobs/{job_id}/trace").json()["events"]]
     for t in ("policy_decision", "tool_invoked", "artifact_created", "job_completed"):
         assert t in trace_types
+
+    # The artifact also shows up in the global list, most recent first.
+    listed = client.get("/api/v1/artifacts").json()["artifacts"]
+    ids = [a["artifact_id"] for a in listed]
+    assert art_id in ids
+    assert ids[0] == art_id
 
 
 def test_e2e_denial_path_over_http(client):
