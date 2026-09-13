@@ -149,6 +149,24 @@ The formal task had not been started when much of its glue scope was already fix
 
 ---
 
+### Entry 4 — 2026-09-13 08:10 — Conversation history (list + resume) and "New chat"
+
+**What changed:** User asked, now that turns are fast, to add "conversation history and all that" on this same branch.
+
+- `backend/repositories/conversations.py` — added `list_conversations(limit, offset)`, ordered by `updated_at DESC` (most recently active first), same pattern as the existing `list_documents()`.
+- `backend/api/conversations.py` — added `GET /api/v1/conversations` (list). No `title` field exists on Conversation (`docs/data-model.md`), so each entry carries a `preview` derived from its first message at read time instead — same non-invasive approach as the documents list (Entry 2), no data-model change. `docs/api.md` updated.
+- `backend/tests/test_api_conversations.py` — 3 new tests (`test_list_conversations_most_recent_first`, `test_list_conversations_preview_from_first_message`, `test_list_conversations_respects_limit`). All pass; full suite 504 passed / 1 known flake (up from 501 — matches the 3 new tests).
+- `frontend/src/services/api.js` — added `listConversations()`.
+- `frontend/src/components/ConversationHistory.jsx` (new) — a "History" dropdown (same UI pattern as `DocumentPicker.jsx`) listing past conversations with preview text, timestamp, message count; clicking one resumes it.
+- `frontend/src/pages/Workbench.jsx` — added a "New chat" button and the `ConversationHistory` picker to the top bar (both hidden in `simMode`, since there's no backend to list from). `handleSelectConversation` sets `conversationId` and clears `activeJobId`/`jobData`, which naturally drops to the existing empty-state composer layout — `ChatPanel` there already loads and displays full history for whatever `conversationId` it's given, so no new "history view" mode was needed. `handleNewConversation` resets all three to null.
+  - **Bug caught before it shipped:** switching conversations while already in the empty-state view doesn't change React's rendered branch, so `ChatPanel`'s internal `conversationId` state (only read from its prop on first mount, per Entry 2's earlier finding) would never update — same class of staleness bug as Entry 2, different trigger. Fixed by keying both `<ChatPanel>` usages with `key={conversationId ?? 'new'}`, forcing a clean remount (and correctly-initialized internal state) on every conversation switch.
+
+**How to verify:** `python -m pytest backend/tests/test_api_conversations.py -q` (7 passed); `npm test -- --run` (14/14) and `npm run build` (clean). Manual: opened History, resumed a real past conversation (from Entry 1's original bug report, still in the DB — "Hey" / "Can you tell me pump specifications?"), full history rendered correctly; sent a new message in it ("What is 5 times 6?") — correctly continued the *same* conversation (same `conversation_id` in a new Job) rather than starting fresh, answer rendered correctly ("5 times 6 is 30."), job completed in ~15s. "New chat" verified to reset cleanly back to the empty composer.
+
+**Decisions made:** No `title` field added to the data model — `preview` is computed at read time from the first message, avoiding a schema change for a cosmetic label.
+
+---
+
 ## Open questions for the user
 
 All three of this section's original questions were answered during the 2026-09-13 session (see Entry 2): documents listing → added now; answer surfacing → assistant chat bubble; test approach → manual + targeted regression tests, confirmed.
