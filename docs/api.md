@@ -95,7 +95,7 @@ Response `200`:
   "events": [
     {
       "event_id": "uuid",
-      "event_type": "job_created | orchestrator_step | policy_decision | tool_invoked | model_invoked | resource_loaded | resource_unloaded | artifact_created | error | job_completed | network_check",
+      "event_type": "job_created | orchestrator_step | policy_decision | tool_invoked | tool_result | model_invoked | resource_loaded | resource_unloaded | artifact_created | error | job_completed | network_check",
       "component": "string",
       "timestamp": "iso8601",
       "payload": {}
@@ -116,6 +116,16 @@ Request: multipart form, field `file`.
 Response `201`:
 ```json
 { "document_id": "uuid", "filename": "string", "content_type": "string", "size_bytes": 12345, "uploaded_at": "iso8601" }
+```
+
+### `GET /api/v1/documents`
+
+List previously uploaded documents, most recently uploaded first.
+
+Query params: `limit` (default 100, max 500), `offset` (default 0).
+Response `200`:
+```json
+{ "documents": [ { "document_id": "uuid", "filename": "string", "content_type": "string", "size_bytes": 12345, "uploaded_at": "iso8601" } ] }
 ```
 
 ### `GET /api/v1/documents/{document_id}`

@@ -188,6 +188,31 @@ class TestUploadEndpoint:
 
         assert response.status_code == 404
 
+    def test_list_documents_includes_uploaded(self, uploaded_document):
+        """GET /api/v1/documents includes a just-uploaded document, most recent first."""
+        response = client.get("/api/v1/documents")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "documents" in data
+        ids = [d["document_id"] for d in data["documents"]]
+        assert uploaded_document in ids
+        # Most recent upload should be at (or near) the front of a DESC-ordered list.
+        assert ids[0] == uploaded_document
+
+    def test_list_documents_respects_limit(self, uploaded_document):
+        """GET /api/v1/documents?limit=1 returns at most one document."""
+        response = client.get("/api/v1/documents", params={"limit": 1})
+
+        assert response.status_code == 200
+        assert len(response.json()["documents"]) == 1
+
+    def test_list_documents_rejects_invalid_limit(self):
+        """GET /api/v1/documents?limit=0 → 422 (validation)."""
+        response = client.get("/api/v1/documents", params={"limit": 0})
+
+        assert response.status_code == 422
+
 
 # ============================================================================
 # OCR Quality Assessment Tests

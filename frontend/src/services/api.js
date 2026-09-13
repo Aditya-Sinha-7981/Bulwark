@@ -120,6 +120,11 @@ export async function getDocument(documentId) {
   return request(`/documents/${documentId}`)
 }
 
+// GET /api/v1/documents — list previously uploaded documents.
+export async function listDocuments({ limit = 20, offset = 0 } = {}) {
+  return request(`/documents?limit=${limit}&offset=${offset}`)
+}
+
 // ---- Artifacts ------------------------------------------------------------
 
 // GET /api/v1/artifacts/{artifact_id} — artifact metadata.
