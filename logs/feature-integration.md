@@ -1,8 +1,8 @@
 # logs/feature-integration.md
 
-> Feature / workstream: `integration` (Task 17 — full frontend/backend integration)  (branches: `feature/integration` suggested by the task file; baseline work currently riding on `fix/useapi-request-flood`)
+> Feature / workstream: `integration` (Task 17 — full frontend/backend integration, plus post-merge UI/fixes work)  (branches: `feature/integration` — squash-merged to `main` 2026-09-13, commit `8b3ee6a`, deleted; `fix/kb-upload-ui` — current, branched from `main` 2026-09-13)
 > Started: 2026-09-12 by Claude (GLM) under Aditya's direction
-> Status: in-progress (baseline recorded; Task 17 formal work not yet started)
+> Status: in-progress
 
 ## Goal
 
@@ -240,6 +240,27 @@ The formal task had not been started when much of its glue scope was already fix
 **How to verify:** `npm test -- --run` (15/15, including a new sidebar-navigation assertion for the Knowledge Base page) and `npm run build` (clean). Manual: confirmed live — all 4 SOPs shown (`SOP-001` through `SOP-004`, all `status: ready`, correct chunk counts 4/3/3/4 matching what `GET /api/v1/knowledge-base` returns directly).
 
 **Decisions made:** View-only, same as Documents/Created — no ingest-from-UI or delete-from-UI action added, even though `ingestKnowledgeDocument`/`deleteKnowledgeDocument` already exist in `services/api.js`; only a viewer was asked for.
+
+---
+
+### Entry 9 — 2026-09-13 20:35 — Branch `fix/kb-upload-ui`; KB ingest UI; full regression sweep found and fixed 2 real bugs
+
+**Context:** `feature/integration` was squash-merged to `main` (commit `8b3ee6a`) and deleted, outside this session's visibility — discovered when `git branch -vv` showed only `main`, now containing every commit from Entries 1–8. New branch `fix/kb-upload-ui` created from `main` per the user's request ("name it appropriately for fixes"). First ask on it: "how would one upload documents for RAG/knowledge base" — Entry 8 had left the Knowledge Base page view-only; this makes it answerable via the UI itself rather than just an API description.
+
+**What changed:**
+
+*KB ingestion UI:* `frontend/src/pages/KnowledgeBase.jsx` — an "Ingest document" button (top-right, matching the page's action-button convention), hidden file input accepting `.txt/.md/.markdown/.pdf` (`backend/api/knowledge_base.py ALLOWED_EXTENSIONS`), no title/category prompt (backend already defaults title to the filename stem). On success, refetches the list immediately rather than waiting for the next 10s poll. No backend change — `POST /api/v1/knowledge-base/documents` already existed and was already wired in `services/api.js` (`ingestKnowledgeDocument`), just never used anywhere in the UI.
+
+*User then asked for a full regression sweep ("go through the codebase again, test APIs and stuff, check for bugs from the new code"):* backend suite (505 passed / 1 known flake), frontend suite (15/15), production build (clean), then live-tested every list/ingest/delete endpoint touched this session via curl (`documents`, `conversations`, `artifacts`, `knowledge-base` — list + the new ingest + delete), and a full click-through of Workbench/Documents/Created/Knowledge Base with console-error monitoring. Found and fixed two real, previously-undetected bugs:
+
+1. **`UploadButton.jsx`'s file-input ref was `useState(null)`, not `useRef(null)`.** Flagged as a "known cosmetic gap" all the way back in Entry 1 but never actually fixed. It happened to work (arrays are objects, so React's `ref.current = node` assignment silently landed on the array), but fired an "Unexpected ref object provided" console error on every single render of any page that mounts `ChatPanel` — i.e. the Workbench, essentially always. Fixed: `useRef`. Verified the warning is gone after a hard reload, and that upload still works via a real click-triggered file input, not just the automated test bypass.
+2. **Conversation history preview leaked the raw attachment note.** `GET /api/v1/conversations`' `preview` field (Entry 4) is computed from the first message's raw stored content, which for a message with an attached document includes `backend/domain/job_manager/manager.py`'s `"[Attached document(s): document_id=<uuid>]"` note (Entry 5 only stripped this for the chat-bubble *display*, not this separate server-computed field) — so the History dropdown showed raw UUIDs for any conversation that started with an attachment. Fixed: `backend/api/conversations.py` strips the same note pattern before truncating for `preview` (mirrors `ChatPanel.jsx`'s `ATTACHMENT_NOTE_RE`) — the *stored* message content, and what the Orchestrator reads, is untouched; only this derived, read-time field changed. New test: uploads a real document, drives a job with it attached, asserts the list `preview` has no note/UUID while `GET /conversations/{id}`'s full message content still does.
+
+**How to verify:** `python -m pytest backend/tests/ -q -k "not integration"` (505 passed, 1 known flake — same as every prior entry); `python -m pytest backend/tests/test_api_conversations.py -q` (8 passed, including the new attachment-stripping test); `npm test -- --run` (15/15) and `npm run build` (clean). Manual: ingested a real test document through the live UI (not just curl) and confirmed it appeared `ready` without a page reload; confirmed the "Unexpected ref" console error is gone after the `UploadButton` fix; confirmed the History dropdown preview is clean for an attachment-note conversation after the `conversations.py` fix. Test artifacts created during this verification (one extra document upload, two KB test ingests) were cleaned up afterward — real DB back to the expected state: 3 documents, 3 artifacts, 4 KB documents.
+
+**Decisions made:** Kept KB ingestion UI minimal (no title/category form) rather than adding a small modal for the two optional metadata fields — the backend's filename-stem default was judged sufficient for a first cut; can be added later if titles need to differ from filenames often in practice.
+
+**Supersedes / references:** Fixes the `UploadButton.jsx` gap noted as "known" (not actioned) in Entry 1. Extends Entry 5's attachment-note display fix to the read-time `preview` field Entry 4 introduced.
 
 ---
 
