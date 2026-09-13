@@ -33,7 +33,7 @@ def test_all_four_files_load_and_validate():
 
     assert settings.app.host == "127.0.0.1"
     assert settings.app.port == 8000
-    assert settings.app.cors_origins == ["http://localhost:5173"]
+    assert settings.app.cors_origins == ["http://localhost:5173", "http://127.0.0.1:5173"]
     assert settings.app.ollama.base_url == "http://localhost:11434"
     assert settings.app.ollama.request_timeout_seconds == 300
 
