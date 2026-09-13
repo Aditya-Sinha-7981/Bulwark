@@ -167,6 +167,22 @@ The formal task had not been started when much of its glue scope was already fix
 
 ---
 
+### Entry 5 — 2026-09-13 08:15 — UI polish pass: attachment-note chip, sovereignty indicator dark-theme + overflow fix
+
+**What changed:** user asked for a basic UI pass now that turns are fast enough to actually click through the app quickly.
+
+- **Attachment note leaking raw UUIDs into chat bubbles.** `backend/domain/job_manager/manager.py:236` embeds `"[Attached document(s): document_id=<uuid>]"` directly into the *persisted* message content — necessary, since that's the only channel the Orchestrator has to learn which document to pass into `extract_document`'s arguments (there's no separate `document_ids` column on Message). But rendering that raw string verbatim in the chat bubble (visible in every Workflow A screenshot this session) is a display problem, not a backend one. `ChatPanel.jsx` now splits it out client-side (`splitAttachmentNote()`) and renders a small "📎 <id-prefix>" chip below the bubble instead of a paragraph of raw UUIDs — the backend/stored content is untouched, this is purely how it's displayed.
+- **`SovereigntyIndicator` — light-mode colors inside a dark app shell, and overflowing its container.** It hardcoded Tailwind light-mode classes (`bg-emerald-50`, `text-emerald-800`, etc.) never adjusted for `AppShell`'s dark shell, and rendered as a full padded card (checked_at / monitoring_since / disclaimer each on their own line) inside `StatusBar`'s `h-9` footer — it visibly overflowed downward past the footer, off the bottom of the viewport in some screenshots this session. Redesigned as a single-line badge using the app's actual dark-theme tokens (`text-ok`/`text-danger`/`border-line` etc., matching every other component in the codebase) that fits the footer; `monitoring_since` and the disclaimer are still in the DOM (`sr-only` + a hover `title` tooltip) rather than dropped, so nothing observable by the existing test suite changed.
+  - **Caught and fixed before it shipped:** the initial edit for the `checked_at` separator wrote the literal 6-character string `·` into JSX text (not a JS string context, so the escape never gets interpreted) — rendered as literal backslash-u-zero-zero-b-seven on screen instead of "·". Fixed by wrapping it as a JS string expression `{"·"}`. Caught by actually looking at the rendered page, not just the test suite (the tests only check `toHaveTextContent` substrings, which don't catch a wrong-but-present character).
+
+**How to verify:** `npm test -- --run` (14/14, `SovereigntyIndicator.test.jsx`'s 8 tests unchanged/still passing — confirms `data-testid`/`data-variant`/text-content contracts held through the restyle) and `npm run build` (clean). Manual: uploaded a document, sent a message, confirmed the bubble shows clean text + a chip (not raw UUIDs); confirmed the sovereignty badge renders as a compact single-line item matching the dark shell, no overflow, correct separator character.
+
+**Decisions made:** Left the backend's stored message content as-is (raw attachment note intact) rather than adding a `document_ids` column to Message to carry attachments out-of-band — that's a data-model change (`docs/data-model.md`, AGENTS.md §6 rule 13) out of a UI-polish pass's scope; the display-layer split accomplishes the same visible result without touching the schema.
+
+**Supersedes / references:** The raw attachment-note text and the sovereignty-panel overflow were both visible in every screenshot from Entries 2–4's manual verification passes but not flagged as findings at the time (out of scope until this explicit UI-polish ask).
+
+---
+
 ## Open questions for the user
 
 All three of this section's original questions were answered during the 2026-09-13 session (see Entry 2): documents listing → added now; answer surfacing → assistant chat bubble; test approach → manual + targeted regression tests, confirmed.
