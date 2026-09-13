@@ -1,11 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { PageHeader } from '../components/ui/PageHeader.jsx'
 import { EmptyState } from '../components/ui/EmptyState.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
 import { Icon } from '../components/ui/Icon.jsx'
-import { getKnowledgeBase } from '../services/api.js'
+import { getKnowledgeBase, ingestKnowledgeDocument } from '../services/api.js'
 
 const POLL_INTERVAL_MS = 10000
+
+// docs/rag.md / backend/api/knowledge_base.py ALLOWED_EXTENSIONS — PDF is
+// text-layer extraction only at ingestion time; scanned-input OCR is a
+// query-time (extract_document) concern, not this endpoint's.
+const ACCEPTED_EXTENSIONS = '.txt,.md,.markdown,.pdf'
 
 const STATUS_FILTERS = [
   { id: 'all', label: 'All', match: () => true },
@@ -30,31 +35,56 @@ export default function KnowledgeBase() {
   const [error, setError] = useState(null)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [ingesting, setIngesting] = useState(false)
+  const [ingestError, setIngestError] = useState(null)
+  const fileInputRef = useRef(null)
+
+  const mountedRef = useRef(true)
+  const fetchKb = () => {
+    return getKnowledgeBase()
+      .then((res) => {
+        if (!mountedRef.current) return
+        setDocuments(res.documents ?? [])
+        setError(null)
+      })
+      .catch((err) => {
+        if (mountedRef.current) setError(err?.message ?? 'Failed to load knowledge base')
+      })
+      .finally(() => {
+        if (mountedRef.current) setLoading(false)
+      })
+  }
 
   useEffect(() => {
-    let cancelled = false
-    const fetchKb = () => {
-      getKnowledgeBase()
-        .then((res) => {
-          if (!cancelled) {
-            setDocuments(res.documents ?? [])
-            setError(null)
-          }
-        })
-        .catch((err) => {
-          if (!cancelled) setError(err?.message ?? 'Failed to load knowledge base')
-        })
-        .finally(() => {
-          if (!cancelled) setLoading(false)
-        })
-    }
+    mountedRef.current = true
     fetchKb()
     const interval = setInterval(fetchKb, POLL_INTERVAL_MS)
     return () => {
-      cancelled = true
+      mountedRef.current = false
       clearInterval(interval)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const handleIngestFile = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setIngesting(true)
+    setIngestError(null)
+    try {
+      // Backend defaults title to the filename stem when no metadata is
+      // given (backend/api/knowledge_base.py) — no title/category prompt
+      // needed for a straightforward upload-and-go flow.
+      await ingestKnowledgeDocument(file)
+      await fetchKb()
+    } catch (err) {
+      setIngestError(err?.message ?? 'Ingestion failed')
+    } finally {
+      setIngesting(false)
+      e.target.value = ''
+    }
+  }
 
   const activeStatusFilter = STATUS_FILTERS.find((f) => f.id === statusFilter) ?? STATUS_FILTERS[0]
   const filtered = useMemo(() => {
@@ -72,10 +102,40 @@ export default function KnowledgeBase() {
         title="Knowledge Base"
         description="Documents ingested for search_knowledge_base retrieval — separate from uploaded documents."
       >
-        <Badge tone="blue" dot={false} icon="knowledge">
-          {filtered.length} of {documents.length} document{documents.length !== 1 ? 's' : ''}
-        </Badge>
+        <div className="flex items-center gap-3">
+          <Badge tone="blue" dot={false} icon="knowledge">
+            {filtered.length} of {documents.length} document{documents.length !== 1 ? 's' : ''}
+          </Badge>
+          <div className="relative">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={ACCEPTED_EXTENSIONS}
+              className="hidden"
+              onChange={handleIngestFile}
+              disabled={ingesting}
+              aria-label="Ingest a document into the knowledge base"
+            />
+            <button
+              type="button"
+              className="btn-primary btn text-sm disabled:opacity-50"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={ingesting}
+            >
+              <Icon name="plus" size={14} />
+              {ingesting ? 'Ingesting…' : 'Ingest document'}
+            </button>
+            {ingestError && (
+              <div className="absolute right-0 top-full mt-2 w-64 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-xs text-danger z-10">
+                {ingestError}
+              </div>
+            )}
+          </div>
+        </div>
       </PageHeader>
+      <p className="mb-4 -mt-3 text-[11px] text-txt-dim">
+        Accepts .txt, .md, and .pdf (text-layer only — scanned PDFs go through the Workbench's document extraction instead).
+      </p>
 
       {documents.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-3">
