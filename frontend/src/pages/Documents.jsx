@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { PageHeader } from '../components/ui/PageHeader.jsx'
 import { EmptyState } from '../components/ui/EmptyState.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
@@ -6,6 +6,13 @@ import { Icon } from '../components/ui/Icon.jsx'
 import { listDocuments } from '../services/api.js'
 
 const POLL_INTERVAL_MS = 10000
+
+const TYPE_FILTERS = [
+  { id: 'all', label: 'All', match: () => true },
+  { id: 'image/png', label: 'PNG', match: (t) => t === 'image/png' },
+  { id: 'image/jpeg', label: 'JPEG', match: (t) => t === 'image/jpeg' },
+  { id: 'application/pdf', label: 'PDF', match: (t) => t === 'application/pdf' },
+]
 
 function formatBytes(bytes) {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
@@ -22,6 +29,8 @@ export default function Documents() {
   const [documents, setDocuments] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [search, setSearch] = useState('')
+  const [typeFilter, setTypeFilter] = useState('all')
 
   useEffect(() => {
     let cancelled = false
@@ -48,14 +57,58 @@ export default function Documents() {
     }
   }, [])
 
+  const activeTypeFilter = TYPE_FILTERS.find((f) => f.id === typeFilter) ?? TYPE_FILTERS[0]
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return documents.filter(
+      (doc) =>
+        activeTypeFilter.match(doc.content_type) &&
+        (!q || doc.filename.toLowerCase().includes(q))
+    )
+  }, [documents, search, activeTypeFilter])
+
   return (
     <div className="mx-auto max-w-[1400px]">
       <PageHeader
         title="Documents"
         description="Files uploaded to the Workbench for extraction (scanned reports, inspection photos, etc.)."
       >
-        <Badge tone="gray">{documents.length} file{documents.length !== 1 ? 's' : ''}</Badge>
+        <Badge tone="gray">
+          {filtered.length} of {documents.length} file{documents.length !== 1 ? 's' : ''}
+        </Badge>
       </PageHeader>
+
+      {documents.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <div className="relative min-w-[220px] flex-1 max-w-sm">
+            <Icon name="search" size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-txt-dim" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search filename…"
+              className="input w-full pl-9 text-sm"
+              aria-label="Search documents by filename"
+            />
+          </div>
+          <div className="flex items-center gap-1">
+            {TYPE_FILTERS.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setTypeFilter(f.id)}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                  typeFilter === f.id
+                    ? 'bg-accent-soft text-accent'
+                    : 'text-txt-mid hover:bg-elevated hover:text-txt-hi'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="mb-4 rounded-lg border border-danger/30 bg-danger-soft px-4 py-2 text-sm text-danger">
@@ -77,7 +130,15 @@ export default function Documents() {
         />
       )}
 
-      {documents.length > 0 && (
+      {!loading && !error && documents.length > 0 && filtered.length === 0 && (
+        <EmptyState
+          icon="search"
+          title="No documents match your filters"
+          description="Try a different search term or type filter."
+        />
+      )}
+
+      {filtered.length > 0 && (
         <div className="card overflow-hidden">
           <table className="w-full text-sm">
             <thead>
@@ -89,7 +150,7 @@ export default function Documents() {
               </tr>
             </thead>
             <tbody>
-              {documents.map((doc) => (
+              {filtered.map((doc) => (
                 <tr key={doc.document_id} className="border-b border-line last:border-0 hover:bg-elevated transition-colors">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">

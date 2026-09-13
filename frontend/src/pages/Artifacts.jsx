@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { PageHeader } from '../components/ui/PageHeader.jsx'
 import { EmptyState } from '../components/ui/EmptyState.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
@@ -6,6 +6,13 @@ import { Icon } from '../components/ui/Icon.jsx'
 import { listArtifacts, artifactDownloadUrl } from '../services/api.js'
 
 const POLL_INTERVAL_MS = 10000
+
+const TYPE_FILTERS = [
+  { id: 'all', label: 'All', match: () => true },
+  { id: 'docx', label: 'DOCX', match: (t) => t === 'docx' },
+  { id: 'xlsx', label: 'XLSX', match: (t) => t === 'xlsx' },
+  { id: 'pptx', label: 'PPTX', match: (t) => t === 'pptx' },
+]
 
 function formatBytes(bytes) {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
@@ -21,6 +28,8 @@ export default function Artifacts() {
   const [artifacts, setArtifacts] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [search, setSearch] = useState('')
+  const [typeFilter, setTypeFilter] = useState('all')
 
   useEffect(() => {
     let cancelled = false
@@ -47,6 +56,16 @@ export default function Artifacts() {
     }
   }, [])
 
+  const activeTypeFilter = TYPE_FILTERS.find((f) => f.id === typeFilter) ?? TYPE_FILTERS[0]
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return artifacts.filter(
+      (art) =>
+        activeTypeFilter.match(art.type) &&
+        (!q || art.filename.toLowerCase().includes(q))
+    )
+  }, [artifacts, search, activeTypeFilter])
+
   return (
     <div className="mx-auto max-w-[1400px]">
       <PageHeader
@@ -54,9 +73,41 @@ export default function Artifacts() {
         description="Generated deliverables from completed tasks — rendered deterministically, never model-formatted."
       >
         <Badge tone="purple" dot={false} icon="artifacts">
-          {artifacts.length} file{artifacts.length !== 1 ? 's' : ''}
+          {filtered.length} of {artifacts.length} file{artifacts.length !== 1 ? 's' : ''}
         </Badge>
       </PageHeader>
+
+      {artifacts.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <div className="relative min-w-[220px] flex-1 max-w-sm">
+            <Icon name="search" size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-txt-dim" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search filename…"
+              className="input w-full pl-9 text-sm"
+              aria-label="Search artifacts by filename"
+            />
+          </div>
+          <div className="flex items-center gap-1">
+            {TYPE_FILTERS.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setTypeFilter(f.id)}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                  typeFilter === f.id
+                    ? 'bg-accent-soft text-accent'
+                    : 'text-txt-mid hover:bg-elevated hover:text-txt-hi'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="mb-4 rounded-lg border border-danger/30 bg-danger-soft px-4 py-2 text-sm text-danger">
@@ -78,9 +129,17 @@ export default function Artifacts() {
         />
       )}
 
-      {artifacts.length > 0 && (
+      {!loading && !error && artifacts.length > 0 && filtered.length === 0 && (
+        <EmptyState
+          icon="search"
+          title="No artifacts match your filters"
+          description="Try a different search term or type filter."
+        />
+      )}
+
+      {filtered.length > 0 && (
         <div className="grid gap-3 lg:grid-cols-2">
-          {artifacts.map((art) => (
+          {filtered.map((art) => (
             <a
               key={art.artifact_id}
               href={artifactDownloadUrl(art.artifact_id)}
