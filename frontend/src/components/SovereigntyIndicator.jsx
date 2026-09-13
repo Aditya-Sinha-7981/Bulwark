@@ -61,54 +61,64 @@ export default function SovereigntyIndicator() {
     label = "0 external connections";
   }
 
+  // Dark-theme tokens matching the rest of the shell (bg-ink/txt-hi/etc,
+  // see index.css) \u2014 this used to hardcode light-mode Tailwind colors
+  // (bg-emerald-50/text-emerald-800/...) inside a dark app shell, and as a
+  // full card (not a compact status-bar item) it visually overflowed the
+  // thin StatusBar footer it's mounted in. Redesigned as a single-line
+  // badge; the full detail (checked_at, monitoring_since, disclaimer) is
+  // still in the DOM for tests/screen readers and available on hover via
+  // `title`, rather than always taking vertical space it doesn't have.
   const variantClasses = {
-    healthy: "bg-emerald-50 border-emerald-400 text-emerald-800",
-    alarm: "bg-red-50 border-red-500 text-red-800",
-    stale: "bg-amber-50 border-amber-400 text-amber-800",
+    healthy: "border-ok/40 text-ok",
+    alarm: "border-danger/50 text-danger",
+    stale: "border-line text-txt-dim",
   };
 
   const dotClasses = {
-    healthy: "bg-emerald-500 animate-pulse",
-    alarm: "bg-red-500",
-    stale: "bg-amber-500",
+    healthy: "bg-ok animate-pulse",
+    alarm: "bg-danger",
+    stale: "bg-txt-dim",
   };
+
+  const tooltipParts = [
+    status?.monitoring_since ? `Monitoring since: ${status.monitoring_since}` : null,
+    "Live monitor of observed network activity \u2014 shown as proof, not itself a network control.",
+  ].filter(Boolean);
 
   return (
     <div
-      className={`sovereignty-indicator border-2 rounded-lg p-4 ${variantClasses[variant]}`}
+      className={`sovereignty-indicator inline-flex items-center gap-1.5 rounded border px-2 py-0.5 ${variantClasses[variant]}`}
       data-testid="sovereignty-indicator"
       data-variant={variant}
       role="status"
       aria-live="polite"
+      title={tooltipParts.join("\n")}
     >
-      <div className="flex items-center gap-3">
-        <div
-          className={`w-3 h-3 rounded-full ${dotClasses[variant]}`}
-          data-testid="status-dot"
-          aria-hidden="true"
-        />
-        <div className="sovereignty-indicator__label font-medium" data-testid="sovereignty-label">
-          {label}
-        </div>
-      </div>
+      <span
+        className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClasses[variant]}`}
+        data-testid="status-dot"
+        aria-hidden="true"
+      />
+      <span className="sovereignty-indicator__label text-[11px] font-medium" data-testid="sovereignty-label">
+        {label}
+      </span>
 
       {status && status.checked_at && (
-        <div className="sovereignty-indicator__checked-at mt-2 text-sm font-mono" data-testid="checked-at">
-          Last checked: {status.checked_at}
-        </div>
+        <span className="sovereignty-indicator__checked-at hidden text-[11px] font-mono text-txt-dim md:inline" data-testid="checked-at">
+          {"\u00b7"} {status.checked_at}
+        </span>
       )}
 
       {status && status.monitoring_since && (
-        <div
-          className="sovereignty-indicator__monitoring-since mt-1 text-sm font-mono" data-testid="monitoring-since"
-        >
+        <span className="sovereignty-indicator__monitoring-since sr-only" data-testid="monitoring-since">
           Monitoring since: {status.monitoring_since}
-        </div>
+        </span>
       )}
 
-      <div className="sovereignty-indicator__disclaimer mt-3 text-xs text-slate-500" data-testid="disclaimer">
+      <span className="sovereignty-indicator__disclaimer sr-only" data-testid="disclaimer">
         {"Live monitor of observed network activity \u2014 shown as proof, not itself a network control."}
-      </div>
+      </span>
     </div>
   );
 }

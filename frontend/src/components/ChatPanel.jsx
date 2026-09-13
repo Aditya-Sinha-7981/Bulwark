@@ -6,6 +6,22 @@ import { DocumentPicker } from './DocumentPicker'
 import { Icon } from './ui/Icon'
 import { ErrorBanner } from './ErrorBanner'
 
+// The backend embeds "[Attached document(s): document_id=<uuid>, ...]" into
+// the persisted message content itself — it's the only channel the
+// Orchestrator has to learn which documents to pass into extract_document's
+// arguments (backend/domain/job_manager/manager.py). That's necessary for
+// the model's prompt, but showing the raw note verbatim in a chat bubble is
+// not — split it out here so the UI can render a clean attachment chip
+// instead of a paragraph of raw UUIDs.
+const ATTACHMENT_NOTE_RE = /\n\n\[Attached document\(s\): ((?:document_id=[0-9a-f-]+(?:, )?)+)\]$/i
+
+function splitAttachmentNote(content) {
+  const match = content.match(ATTACHMENT_NOTE_RE)
+  if (!match) return { text: content, documentIds: [] }
+  const documentIds = match[1].match(/[0-9a-f-]{36}/gi) ?? []
+  return { text: content.slice(0, match.index), documentIds }
+}
+
 // Chat panel — message history + input + file upload.
 // On submit: ensures conversation exists, creates Job, returns jobId.
 // `job` (optional): the current Job's state from GET /jobs/{id}, as polled by
@@ -155,29 +171,45 @@ export function ChatPanel({ onJobCreated, onConversationCreated, conversationId:
           </div>
         ) : (
           <>
-            {messages.map((msg, idx) => (
-              <div
-                key={msg.message_id ?? idx}
-                className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
-              >
+            {messages.map((msg, idx) => {
+              const { text, documentIds } = splitAttachmentNote(msg.content)
+              return (
                 <div
-                  className={`flex-1 max-w-[80%] ${msg.role === 'user' ? 'text-right' : ''}`}
+                  key={msg.message_id ?? idx}
+                  className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
                 >
                   <div
-                    className={`inline-block px-4 py-2 rounded-2xl text-sm ${
-                      msg.role === 'user'
-                        ? 'bg-accent-soft text-accent rounded-tr-none'
-                        : 'bg-elevated text-txt-hi rounded-tl-none'
-                    }`}
+                    className={`flex-1 max-w-[80%] ${msg.role === 'user' ? 'text-right' : ''}`}
                   >
-                    {msg.content}
-                  </div>
-                  <div className="mt-1 text-[10px] text-txt-dim mono">
-                    {new Date(msg.created_at ?? msg.timestamp).toLocaleTimeString()}
+                    <div
+                      className={`inline-block px-4 py-2 rounded-2xl text-sm ${
+                        msg.role === 'user'
+                          ? 'bg-accent-soft text-accent rounded-tr-none'
+                          : 'bg-elevated text-txt-hi rounded-tl-none'
+                      }`}
+                    >
+                      {text}
+                    </div>
+                    {documentIds.length > 0 && (
+                      <div className={`mt-1 flex flex-wrap gap-1 ${msg.role === 'user' ? 'justify-end' : ''}`}>
+                        {documentIds.map((docId) => (
+                          <span
+                            key={docId}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-band-soft text-band text-[11px]"
+                          >
+                            <Icon name="file" size={11} />
+                            {docId.slice(0, 8)}…
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="mt-1 text-[10px] text-txt-dim mono">
+                      {new Date(msg.created_at ?? msg.timestamp).toLocaleTimeString()}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
             <div ref={messagesEndRef} />
           </>
         )}
