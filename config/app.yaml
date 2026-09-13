@@ -1,7 +1,7 @@
 app:
   host: 127.0.0.1
   port: 8000
-  cors_origins: ["http://localhost:5173"]
+  cors_origins: ["http://localhost:5173", "http://127.0.0.1:5173"]   # browser origins for the vite dev server (localhost and loopback are distinct browser origins); both are loopback-only, per security.md
 
 paths:
   data_root: ./data

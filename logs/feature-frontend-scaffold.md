@@ -164,6 +164,28 @@ Also: `rg -l "fetch\\(" frontend/src` should return only `services/api.js`; conf
 
 ---
 
+### Entry 6 — 2026-09-12 22:20 — useApi refetched on every render — continuous request flood (branch `fix/useapi-request-flood`)
+
+**What changed:**
+- `frontend/src/hooks/useApi.js` — `execute`'s dependency array changed from `[apiFn, args]` to `[apiFn, argsKey]` where `argsKey = JSON.stringify(args)`. The rest parameter (`...args`) allocates a fresh array on every render, so the old chain gave `execute` a new identity per render and the mount effect re-ran the fetch **on every render** — state update → re-render → new args array → effect → fetch → state update → … an unbounded request loop for every mounted `useApi` caller.
+- `frontend/src/__tests__/useApi.test.jsx` (new) — 3 regression tests: exactly-once per mount across re-renders; refetch on arg VALUE change; no refetch on identical args re-supplied. Verified the old code fails all 3 (via `git stash` of the fix) and the fix passes.
+
+**Why:** Found live (2026-09-12): the user reported a continuous request flood when the frontend was open. The backend access log from a ~25-min window showed **328 × GET /api/v1/health** vs only 26 × network-status (the 2s sovereignty poll) — a Workbench `useApi(getHealth)` call refiring per render. The user's perception was "every 1ms"; the effective rate was bounded by the React render/fetch cycle and browser tab throttling. Every page using `useApi` (Knowledge, Artifacts, Jobs, Workbench) has the same flood while mounted.
+
+**How to verify:**
+- `cd frontend && npx vitest run src/__tests__/useApi.test.jsx` → 3 passed; full suite 14/14; build succeeds.
+- Manual: open any page with the backend log tailing — each endpoint should now be hit once on mount (plus deliberate polls), not continuously.
+
+**Open issues / known gaps:**
+- `JSON.stringify` on args: callers must pass JSON-serializable args (current callers pass ids/strings only — verified). Documented here as a constraint of the hook.
+- Unrelated per-endpoint cadences are intentional and unchanged: useHealth 15s, sovereignty indicator 2s, Workbench network-status 15s, active-job status 3s.
+
+**Decisions made:** Value-serialized args (`JSON.stringify`) rather than a ref, so arg *changes* still refetch correctly while re-renders don't — matches useApi's contract (`refetch` remains manual for same-args refresh).
+
+**Supersedes / references:** Builds on Entry 5's audit; pairs with the CORS fix (`fix/cors-loopback-origins`, `logs/feature-configuration.md` Entry 2) — that session's "Backend unreachable" symptom had two causes: dead backend + CORS; this entry adds the third: even with a live, CORS-permitting backend, the UI flooded the API.
+
+---
+
 ## Open questions for the user
 
 - None at present. Awaiting: (1) manual visual QA in a real browser against the four reference screenshots, and (2) a decision on whether Workbench job creation + the Jobs dashboard should wire to the backend once it ships a conversations/job-list endpoint (Task 16 integration). (Branch-name ambiguity resolved: using `feature/frontend-scaffold` originally; current work on `feature/frontend-scaffold-health`.)
