@@ -8,6 +8,8 @@ is appended here as a `role: "orchestrator"` row by the Job Manager.
 """
 from __future__ import annotations
 
+import re
+
 from fastapi import APIRouter, HTTPException, Query
 
 from backend.repositories import conversations as conversations_repo
@@ -15,6 +17,18 @@ from backend.repositories import conversations as conversations_repo
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
 _PREVIEW_MAX_CHARS = 120
+
+# backend/domain/job_manager/manager.py embeds this note into the *stored*
+# message content — the Orchestrator's only channel to learn which
+# document_ids to pass into extract_document. `preview` is a display-only
+# field computed at read time (not stored), so stripping it here doesn't
+# touch what the Orchestrator sees; it just keeps raw UUIDs out of the
+# History dropdown (frontend/src/components/ChatPanel.jsx has the matching
+# strip for the chat bubble itself — docs/frontend.md).
+_ATTACHMENT_NOTE_RE = re.compile(
+    r"\n\n\[Attached document\(s\): (?:document_id=[0-9a-f-]+(?:, )?)+\]$",
+    re.IGNORECASE,
+)
 
 
 def _not_found(message: str) -> dict:
@@ -57,7 +71,7 @@ async def list_conversations(
         first_message = conversations_repo.list_messages(conv["conversation_id"], limit=1)
         preview = None
         if first_message:
-            content = first_message[0]["content"]
+            content = _ATTACHMENT_NOTE_RE.sub("", first_message[0]["content"])
             preview = (
                 content
                 if len(content) <= _PREVIEW_MAX_CHARS
