@@ -89,6 +89,28 @@ result = await process_document(document_id, str(file_path))
 - Workflow D was not independently re-validated beyond confirming the monitor was live throughout; Task 18's own scripts (`scripts/audit_egress_report.py`) are the authoritative Workflow D proof and weren't re-run here to avoid duplicating that task's job.
 - No application code was changed by this task, per its own scope; both regressions above are documented with exact repro (job IDs, timestamps, root cause) for their owning tasks rather than patched here.
 
+## Entry 2 — 2026-09-14 — Both regressions fixed on `fix/orchestrator-sequencing-and-audit-jobid` and retested live
+
+At Aditya's request, both regressions from Entry 1 were fixed directly (this branch is separate from `feature/sih-workflows`, since Task 19 itself forbids application-code changes — the fix lives on its own branch, off `feature/sih-workflows`).
+
+**Regression 2 (audit job_id) — fixed and confirmed fully resolved.** `backend/domain/capabilities/extract_document.py::execute_extract_document` now accepts an optional `job_id` and threads it into `process_document`/`process_pdf_document`; `backend/domain/job_manager/manager.py`'s dispatch adapter now passes it. A regression test (`test_execute_extract_document_threads_job_id_to_pipeline`) asserts this directly. Retested live: the degraded-asset job now shows `vision_escalated=True` in its own trace (previously `False` — the event existed in the DB but under `job_id=NULL`, invisible to the job-scoped query).
+
+**Regression 1 (Orchestrator sequencing) — substantially improved, not fully eliminated.** `backend/domain/orchestrator/prompt_builder.py`'s "Document Deliverables Rule" was strengthened: retrieval before drafting conclusions from extracted content is now stated as mandatory (not conditional on the model's own confidence), and a new paragraph makes explicit that a negative/cautionary finding must still produce the requested document (framed as whatever it actually is — a deviation note, "not approved," etc.) rather than being resolved via a bare `respond`. This is a prompt-only change — no new architecture, no new capability.
+
+**Retest (5 fresh clean-asset runs, live Ollama/Docker/KB):**
+
+| Run | job_id | Sequence | Outcome |
+|---|---|---|---|
+| 1 | `f157baf3-e83a-4674-af23-8146d6f354e2` | `extract_document → search_knowledge_base → create_docx` | Correct |
+| 2 | `201feb79-7967-484c-8748-b9724a4ef2c6` | `extract_document → search_knowledge_base` | Retrieved correctly, reasoned correctly (cited SOP-100/SOP-001, 92°C > 85°C limit), but put the full structured findings in the chat `respond` instead of calling `create_docx` — the exact residual case the new prompt paragraph targets and didn't fully close |
+| 3 | `39783557-a8d6-4b5e-b2df-e689d7d21c86` | full correct sequence | Correct |
+| 4 | `75d244b4-3684-4818-826c-2eb585b5e003` | full correct sequence | Correct |
+| 5 | `66f24438-6663-4d0a-920d-193a35f27b39` | full correct sequence | Correct |
+
+**Task success rate: 80% (4/5), up from 20% (1/5) before the fix — now clears the documented ≥80% threshold, right at the boundary.** Termination 100% (unchanged). Structured-output validity: of the 4 runs that actually attempted `create_docx`, all 4 (100%) were schema-valid — clears the ≥95% bar. (The harness's own validity metric had a bug — it originally divided valid-DOCX count by *total runs* rather than by *attempts*, per `docs/testing.md`'s actual definition; fixed in this branch, along with the test's own assertion, so it no longer conflates "didn't attempt" with "attempted and failed schema validation.")
+
+**Conclusion:** both fixes measurably improved the system and are worth keeping. The sequencing fix is a real improvement but, being a prompt-only nudge against a real model's judgment, is not a guarantee — a run where the finding is negative can still occasionally skip the document entirely. This residual risk is exactly what Task 20's Orchestrator benchmark (`qwen3.5:9b` vs `gpt-oss:20b`) exists to resolve with a harder model swap if needed; it is not something a further prompt tweak should be expected to fully close. Recommend treating Workflow A as "materially improved, rehearse before demoing live" rather than "fixed."
+
 ## Acceptance checklist (tasks/19-sih-workflow-validation.md §9)
 
 - [x] Representative assets exist: clean + degraded report images; realistic synthetic SOPs ingested to `ready`; a clean + a buggy(-attempted) coding task.
