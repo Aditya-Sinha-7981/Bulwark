@@ -15,6 +15,7 @@ from backend.api.network_status import router as network_status_router
 from backend.config import settings
 from backend.domain.monitoring import network_monitor
 from backend.repositories.db import ConstraintError, DatabaseError, NotFoundError
+from backend.utils import socket_guard
 from backend.utils.paths import all_managed_dirs
 
 
@@ -30,7 +31,12 @@ def create_data_directories() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     create_data_directories()
-    # Zero-egress monitor (Task 15 scaffold; enforcement layers are Task 18).
+    # Zero-egress layer 6 (backstop) — installed before anything else opens a
+    # socket, so no code path in this process can slip a connection out
+    # before the guard is live (docs/security.md layer 6, Task 18).
+    socket_guard.install()
+    # Zero-egress monitor — layers 1-6 enforce; this is the live proof
+    # (docs/security.md "Monitoring", Task 18 Requirement 7).
     await network_monitor.start()
     try:
         yield
