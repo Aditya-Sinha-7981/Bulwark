@@ -64,6 +64,7 @@ def _scoped_upload_path(storage_path: str) -> Path:
 
 async def execute_extract_document(
     input_data: Union[ExtractDocumentInput, dict],
+    job_id: Union[str, None] = None,
 ) -> ExtractDocumentOutput:
     registry = _registry()
     payload = (
@@ -105,9 +106,9 @@ async def execute_extract_document(
 
     try:
         if content_type == "application/pdf":
-            result = await process_pdf_document(document_id, str(file_path))
+            result = await process_pdf_document(document_id, str(file_path), job_id=job_id)
         else:
-            result = await process_document(document_id, str(file_path))
+            result = await process_document(document_id, str(file_path), job_id=job_id)
     except (UnreadableDocumentError, OCRTimeoutError, PipelineTimeoutError) as exc:
         logger.error("Pipeline failed for document %s: %s", document_id, exc)
         raise ExtractDocumentError(str(exc)) from exc
