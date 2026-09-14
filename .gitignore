@@ -42,6 +42,12 @@
 *.sqlite
 *.sqlite3
 *.db-journal
+
+# ── Personal presentation prep — never shared, never committed ─────────────
+# Aditya's own judge-prep notes (problem framing, architecture rationale,
+# personal contribution record, team breakdown, anticipated Q&A). Not
+# project documentation — do not move this content into docs/.
+/pitch/
 *.db-wal
 *.db-shm
 
@@ -125,3 +131,4 @@ Desktop.ini
 # Project-level .claude/settings.json (shared team config) IS tracked.
 # Personal overrides are not.
 .claude/settings.local.json
+/backups/
