@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Icon } from './ui/Icon'
 import { uploadDocument } from '../services/api'
 
@@ -7,7 +7,11 @@ import { uploadDocument } from '../services/api'
 export function UploadButton({ onDocumentUploaded, disabled = false }) {
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState(null)
-  const fileInputRef = useState(null)
+  // Was `useState(null)` — an array, not a ref object. React still set
+  // `.current` on it (arrays are objects), so fileInputRef.current.click()
+  // happened to work, but it fired "Unexpected ref object provided" console
+  // errors on every render (visible on every page that mounts ChatPanel).
+  const fileInputRef = useRef(null)
 
   const handleFileSelect = async (e) => {
     const file = e.target.files?.[0]

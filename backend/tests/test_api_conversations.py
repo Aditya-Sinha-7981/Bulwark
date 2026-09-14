@@ -67,6 +67,35 @@ def test_list_conversations_preview_from_first_message(bulwark_client):
     assert entry["message_count"] == 2
 
 
+def test_list_conversations_preview_strips_attachment_note(bulwark_client):
+    """The backend embeds "[Attached document(s): document_id=<uuid>]" into
+    the *stored* message content (the Orchestrator's only channel to learn
+    which document to extract) — the list preview is a display-only field
+    computed at read time and should not leak the raw note/UUID, even
+    though GET /conversations/{id} (the full history) still shows it."""
+    doc_id = bulwark_client.post(
+        "/api/v1/documents",
+        files={"file": ("test.png", b"\x89PNG\r\n\x1a\n" + b"0" * 20, "image/png")},
+    ).json()["document_id"]
+
+    conv_id = bulwark_client.post("/api/v1/conversations").json()["conversation_id"]
+    job = bulwark_client.post(
+        "/api/v1/jobs",
+        json={"conversation_id": conv_id, "message": "summarize this", "document_ids": [doc_id]},
+    ).json()
+    _poll_job(bulwark_client, job["job_id"])
+
+    listed = bulwark_client.get("/api/v1/conversations").json()["conversations"]
+    entry = next(c for c in listed if c["conversation_id"] == conv_id)
+    assert entry["preview"] == "summarize this"
+    assert "Attached document" not in entry["preview"]
+    assert doc_id not in entry["preview"]
+
+    full = bulwark_client.get(f"/api/v1/conversations/{conv_id}").json()
+    assert "Attached document" in full["messages"][0]["content"]
+    assert doc_id in full["messages"][0]["content"]
+
+
 def test_list_conversations_respects_limit(bulwark_client):
     bulwark_client.post("/api/v1/conversations")
     bulwark_client.post("/api/v1/conversations")
