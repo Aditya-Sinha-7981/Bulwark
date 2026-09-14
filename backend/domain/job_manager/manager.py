@@ -289,8 +289,12 @@ async def _dispatch_capability(
     -> dict` — arguments is the raw, unvalidated dict from the Orchestrator's
     proposal; each executor validates its own input/output against
     `docs/capabilities.md` internally. `extract_document` (Task 11) has not
-    converged yet and still takes a single pre-validated pydantic model, so
-    this adapter validates on its behalf until it does.
+    fully converged yet and still takes a single pre-validated pydantic model
+    (so this adapter validates on its behalf until it does), but it does now
+    take `job_id` as a keyword arg (Task 19 finding: vision escalation's
+    `model_invoked` event was being emitted with job_id=None, invisible in
+    the job's trace, because job_id previously never reached
+    `execute_extract_document` at all).
     `capability_execution_id` is threaded here for `model_executions`
     correlation once these executors make real model calls.
     """
@@ -308,7 +312,7 @@ async def _dispatch_capability(
         from backend.domain.capabilities.extract_document import execute_extract_document
 
         model = registry.validate_input(capability_name, arguments)
-        return _as_dict(await execute_extract_document(model))
+        return _as_dict(await execute_extract_document(model, job_id=job_id))
 
     if capability_name == "search_knowledge_base":
         from backend.domain.capabilities.search_knowledge_base import (

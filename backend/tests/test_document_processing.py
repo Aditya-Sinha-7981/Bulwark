@@ -918,6 +918,29 @@ class TestExtractDocumentExecutor:
         assert result.warnings == []
 
     @pytest.mark.asyncio
+    async def test_execute_extract_document_threads_job_id_to_pipeline(self, temp_db, uploaded_document):
+        """Task 19 finding: vision escalation's model_invoked audit event was
+        being emitted with job_id=None (invisible in the job's trace) because
+        job_id never reached process_document. execute_extract_document must
+        forward whatever job_id it was called with."""
+        with patch("domain.capabilities.extract_document.process_document", new_callable=AsyncMock) as mock_process:
+            mock_process.return_value = ExtractionResult(
+                extracted_text="text",
+                extraction_method="ocr",
+                confidence=0.92,
+                warnings=[],
+                signals=QualitySignals(0.92, False, 0.95, False),
+                processing_time_ms=500,
+            )
+
+            input_data = ExtractDocumentInput(document_id=uploaded_document)
+            await execute_extract_document(input_data, job_id="job-123")
+
+        mock_process.assert_awaited_once()
+        _, kwargs = mock_process.await_args
+        assert kwargs.get("job_id") == "job-123"
+
+    @pytest.mark.asyncio
     async def test_execute_extract_document_success_pdf(self, temp_db, client):
         """Valid PDF document → processes pages and returns validated output."""
         # Upload a real PDF first

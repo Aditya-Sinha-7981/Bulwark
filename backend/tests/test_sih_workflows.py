@@ -141,6 +141,7 @@ class TestWorkflowA:
 
             correct_sequence = tools == ["extract_document", "search_knowledge_base", "create_docx"]
             terminated = body["status"] in ("completed", "failed")
+            attempted_docx = "create_docx" in tools
             docx_valid = False
             if body["status"] == "completed" and body["artifact_ids"]:
                 art_id = body["artifact_ids"][0]
@@ -158,7 +159,13 @@ class TestWorkflowA:
 
             success = body["status"] == "completed" and correct_sequence and docx_valid
             results.append(
-                {"terminated": terminated, "correct_sequence": correct_sequence, "docx_valid": docx_valid, "success": success}
+                {
+                    "terminated": terminated,
+                    "correct_sequence": correct_sequence,
+                    "attempted_docx": attempted_docx,
+                    "docx_valid": docx_valid,
+                    "success": success,
+                }
             )
             _print_run(
                 "A-clean", i, job_id, body["status"],
@@ -168,8 +175,16 @@ class TestWorkflowA:
 
         termination_rate = sum(r["terminated"] for r in results) / N_RUNS
         success_rate = sum(r["success"] for r in results) / N_RUNS
-        validity_rate = sum(r["docx_valid"] for r in results if r["docx_valid"] is not None) / N_RUNS
-        print(f"[A-clean] AGGREGATE termination={termination_rate:.0%} success={success_rate:.0%} docx_validity={validity_rate:.0%}")
+        # docs/testing.md: structured-output validity is schema-valid /
+        # total ARTIFACT-GENERATION ATTEMPTS, not / total runs — a run that
+        # never proposed create_docx at all is not a schema failure, it's a
+        # sequencing miss (already reflected in success_rate).
+        attempts = [r for r in results if r["attempted_docx"]]
+        validity_rate = (sum(r["docx_valid"] for r in attempts) / len(attempts)) if attempts else 1.0
+        print(
+            f"[A-clean] AGGREGATE termination={termination_rate:.0%} success={success_rate:.0%} "
+            f"docx_validity={validity_rate:.0%} (of {len(attempts)} attempts)"
+        )
 
         assert termination_rate == 1.0, "correct termination must be 100%"
         assert success_rate >= 0.8, f"task success rate {success_rate:.0%} below 80% threshold"
