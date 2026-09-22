@@ -264,6 +264,29 @@ The formal task had not been started when much of its glue scope was already fix
 
 ---
 
+### Entry 10 — 2026-09-22 12:40 — Pre-demo real-database cleanup (chats/documents/artifacts), no code changes
+
+**Context:** user is about to showcase the project and asked to clear out prior chats/documents from the real `data/db/app.db` for a clean demo start, without breaking anything. Same class of task as Entry 7 (which fixed the *cause* of test pollution); this entry is a second, later cleanup of real usage data that accumulated from actual manual demo/dev sessions since Entry 7 (not test pollution — `test_document_processing.py`'s isolation fix from Entry 7 held; confirmed by a full `pytest` run before and after this cleanup showing the real DB unchanged, see below).
+
+**What changed:**
+- Backed up `data/db/app.db`, `data/chroma/`, `data/uploads/`, `data/artifacts/` to `backups/pre-cleanup-20260922-124004/` before touching anything (same convention as the two prior `backups/pre-cleanup-*` folders from 2026-09-14/15).
+- `DELETE FROM conversations` (11 rows) — cascades per `scripts/init_db.py`'s `ON DELETE CASCADE` FKs to `messages` (20), `jobs` (12), `job_steps` (35), `capability_executions` (13), `model_executions` (0), the one `artifacts` row, and all job-linked `audit_events` (161 of 9,238 rows: `job_created`/`job_completed`/`orchestrator_step`/`policy_decision`/`tool_invoked`/`tool_result`/`resource_loaded`/`resource_unloaded`/`artifact_created`/some `model_invoked`/`error`).
+- `DELETE FROM documents` (5 rows, all the same `inspection-report-clean.png` re-uploaded across test/demo runs) — this table has **no FK to jobs** (confirmed against `scripts/init_db.py`), so it doesn't cascade from anything; deleted explicitly, then removed the 5 corresponding files from `data/uploads/`.
+- Removed the 1 orphaned `data/artifacts/*.docx` file left behind after its row cascaded away (cascade drops the DB row, not the on-disk file).
+- Removed 2 stray `.md` files in `data/uploads/` (`655ad353...`, `c7d15fe5...`) that matched no row in either `documents` or `knowledge_base_documents` — old orphaned upload temp files, not referenced by anything live.
+- User explicitly asked, mid-task, to also clear the `network_check` audit rows (9,077 of 9,238 — the zero-egress monitor's own periodic log, `job_id IS NULL` so it doesn't cascade with anything else) since it "doesn't matter too much" — `DELETE FROM audit_events WHERE event_type = 'network_check'`. `VACUUM`ed afterward; `data/db/app.db` went from ~1.4MB-ish range down to 136K.
+- **Explicitly did not touch:** `knowledge_base_documents` (7 SOP rows, all `status: ready`) or `data/chroma/` (vector store, one collection dir `d8f3cfd2-9e8e-4bac-b110-af948a6817ff` matching those KB docs) — user was explicit ("do not delete any RAG documents and such"). Also left `resource_state` (4 rows, model load/unload runtime state) alone — it's model-runtime state, not chat history.
+
+**How to verify:** `python3 -m pytest backend/tests/ -q -k "not integration"` → 526 passed, 11 skipped, 16 deselected (unchanged pass count from the last known-good baseline, confirms Entry 7's isolation fix is still holding and this run didn't repollute the real DB — checked row counts before and after the test run, still `conversations=0, documents=0, artifacts=0, knowledge_base_documents=7`). `python3 -c "from backend.main import app"` imports cleanly (11 routes). Final row counts: `conversations/messages/jobs/job_steps/documents/artifacts/capability_executions/model_executions = 0`; `audit_events = 20` (16 `model_invoked` + 4 `error`, both pre-existing job-independent entries that don't reference the deleted jobs); `knowledge_base_documents = 7` (all 7 SOPs present, `status: ready`, unchanged); `data/chroma/` untouched; `data/uploads/` now holds exactly the 3 `.md` files backing the 3 KB docs whose storage path lives there (`91f8821e...`, `97e29400...`, `5cab8cbc...`) plus `.gitkeep`; `data/artifacts/` back to just `.gitkeep`.
+
+**Open issues / known gaps:** none — this was a pure data reset, no code touched, no schema touched.
+
+**Decisions made:** Left the 16 `model_invoked` and 4 `error` audit rows in place even though their originating jobs are gone — deleting them wasn't asked for and they don't reference anything that would dangle (no FK violation, `job_id` on those rows was already NULL or pointed at conversations/jobs deleted in the same transaction and is not enforced as NOT NULL). Used `DELETE` + explicit file removal rather than dropping/recreating tables — keeps the schema (and any app connections' cached statements) untouched, matches Entry 7's approach.
+
+**Supersedes / references:** Same pattern as Entry 7's "Real-database cleanup," applied a second time to real (non-test) accumulated demo data rather than test pollution.
+
+---
+
 ## Open questions for the user
 
 All original questions in this section were answered during the 2026-09-13 session (see Entry 2: documents listing, answer surfacing, test approach; Entry 7: real-database cleanup and test isolation). None currently outstanding from this workstream — see Entries 2 and 3 for items still routed to other tasks (Workflow A's retrieval-skip, Workflow B's correction loop, `think:false` regression risk).
